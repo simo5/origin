@@ -19,7 +19,6 @@ import (
 	"github.com/openshift/origin/pkg/oc/admin/groups"
 	"github.com/openshift/origin/pkg/oc/admin/image"
 	"github.com/openshift/origin/pkg/oc/admin/migrate"
-	migrateauthorization "github.com/openshift/origin/pkg/oc/admin/migrate/authorization"
 	migrateetcd "github.com/openshift/origin/pkg/oc/admin/migrate/etcd"
 	migrateimages "github.com/openshift/origin/pkg/oc/admin/migrate/images"
 	migratestorage "github.com/openshift/origin/pkg/oc/admin/migrate/storage"
@@ -96,7 +95,6 @@ func NewCommandAdmin(name, fullName string, in io.Reader, out io.Writer, errout 
 					// Migration commands
 					migrateimages.NewCmdMigrateImageReferences("image-references", fullName+" "+migrate.MigrateRecommendedName+" image-references", f, in, out, errout),
 					migratestorage.NewCmdMigrateAPIStorage("storage", fullName+" "+migrate.MigrateRecommendedName+" storage", f, in, out, errout),
-					migrateauthorization.NewCmdMigrateAuthorization("authorization", fullName+" "+migrate.MigrateRecommendedName+" authorization", f, in, out, errout),
 					migrateetcd.NewCmdMigrateTTLs("etcd-ttl", fullName+" "+migrate.MigrateRecommendedName+" etcd-ttl", f, in, out, errout),
 				),
 				top.NewCommandTop(top.TopRecommendedName, fullName+" "+top.TopRecommendedName, f, out, errout),

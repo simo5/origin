@@ -306,7 +306,7 @@ func TestAuthorizationResolution(t *testing.T) {
 	// the policy cache taking time to react
 	if err := wait.Poll(time.Second, 2*time.Minute, func() (bool, error) {
 		err := addValerie.AddRole()
-		if kapierror.IsNotFound(err) {
+		if err == nil || kapierror.IsNotFound(err) { // TODO what does this mean?
 			return true, nil
 		}
 		return false, err
@@ -318,7 +318,7 @@ func TestAuthorizationResolution(t *testing.T) {
 	roleWithGroup.Name = "with-group"
 	roleWithGroup.Rules = append(roleWithGroup.Rules, authorizationapi.PolicyRule{
 		Verbs:     sets.NewString("list"),
-		Resources: sets.NewString("resourcegroup:builds"),
+		Resources: sets.NewString("builds"), // TODO we may need to track these down
 	})
 	if _, err := clusterAdminClient.ClusterRoles().Create(roleWithGroup); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -628,7 +628,7 @@ func TestAuthorizationResourceAccessReview(t *testing.T) {
 				Users:           sets.NewString("edgar"),
 				Groups:          sets.NewString(),
 				Namespace:       "mallet-project",
-				EvaluationError: `[role.authorization.openshift.io "admin" not found, role.authorization.openshift.io "admin" not found]`,
+				EvaluationError: `[clusterrole.rbac.authorization.k8s.io "admin" not found, clusterrole.rbac.authorization.k8s.io "admin" not found]`,
 			},
 		}
 		test.response.Users.Insert(globalClusterReaderUsers.List()...)
@@ -1690,7 +1690,9 @@ func TestPolicyCache(t *testing.T) {
 			t.Fatalf("unexpected error creating role %q: %v", role.Name, err)
 		}
 		roleBinding := &authorizationapi.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: role.Name},
+			// TODO maybe Convert_authorization_RoleBinding_To_rbac_RoleBinding should be ok with an empty namespace for a local role ref?
+			// TODO Also, we should be able to remove this test all together
+			ObjectMeta: metav1.ObjectMeta{Name: role.Name, Namespace: namespace},
 			Subjects:   []kapi.ObjectReference{{Name: user, Kind: authorizationapi.UserKind}},
 			RoleRef:    kapi.ObjectReference{Name: role.Name, Namespace: namespace}}
 		if _, err := haroldClient.RoleBindings(namespace).Create(roleBinding); err != nil {
