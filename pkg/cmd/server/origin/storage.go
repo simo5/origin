@@ -91,9 +91,13 @@ import (
 	clusterresourcequotaetcd "github.com/openshift/origin/pkg/quota/registry/clusterresourcequota/etcd"
 
 	"github.com/openshift/origin/pkg/api/v1"
+	"github.com/openshift/origin/pkg/authorization/registry/clusterrole"
+	"github.com/openshift/origin/pkg/authorization/registry/clusterrolebinding"
 	"github.com/openshift/origin/pkg/authorization/registry/localresourceaccessreview"
 	"github.com/openshift/origin/pkg/authorization/registry/localsubjectaccessreview"
 	"github.com/openshift/origin/pkg/authorization/registry/resourceaccessreview"
+	"github.com/openshift/origin/pkg/authorization/registry/role"
+	"github.com/openshift/origin/pkg/authorization/registry/rolebinding"
 	rolebindingrestrictionetcd "github.com/openshift/origin/pkg/authorization/registry/rolebindingrestriction/etcd"
 	"github.com/openshift/origin/pkg/authorization/registry/selfsubjectrulesreview"
 	"github.com/openshift/origin/pkg/authorization/registry/subjectaccessreview"
@@ -427,15 +431,15 @@ func (c OpenshiftAPIConfig) GetRestStorage() (map[schema.GroupVersion]map[string
 		"selfSubjectRulesReviews":    selfSubjectRulesReviewStorage,
 		"subjectRulesReviews":        subjectRulesReviewStorage,
 
-		"policies":       authStorage.Policy,
-		"policyBindings": authStorage.PolicyBinding,
-		"roles":          authStorage.Role,
-		"roleBindings":   authStorage.RoleBinding,
-
+		"policies":              authStorage.Policy,
+		"policyBindings":        authStorage.PolicyBinding,
 		"clusterPolicies":       authStorage.ClusterPolicy,
 		"clusterPolicyBindings": authStorage.ClusterPolicyBinding,
-		"clusterRoleBindings":   authStorage.ClusterRoleBinding,
-		"clusterRoles":          authStorage.ClusterRole,
+
+		"roles":               role.NewREST(c.KubeClientInternal.Rbac()),
+		"roleBindings":        rolebinding.NewREST(c.KubeClientInternal.Rbac()),
+		"clusterRoles":        clusterrole.NewREST(c.KubeClientInternal.Rbac()),
+		"clusterRoleBindings": clusterrolebinding.NewREST(c.KubeClientInternal.Rbac()),
 
 		"roleBindingRestrictions": roleBindingRestrictionStorage,
 	}
