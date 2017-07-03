@@ -209,6 +209,11 @@ func (c OpenshiftAPIConfig) GetRestStorage() (map[schema.GroupVersion]map[string
 		return nil, fmt.Errorf("error building authorization REST storage: %v", err)
 	}
 
+	authProxy, err := util.GetAuthorizationProxy(c.KubeClientInternal.Rbac())
+	if err != nil {
+		return nil, fmt.Errorf("error building authorization REST proxy: %v", err)
+	}
+
 	subjectAccessReviewStorage := subjectaccessreview.NewREST(c.GenericConfig.Authorizer)
 	subjectAccessReviewRegistry := subjectaccessreview.NewRegistry(subjectAccessReviewStorage)
 	localSubjectAccessReviewStorage := localsubjectaccessreview.NewREST(subjectAccessReviewRegistry)
@@ -429,13 +434,13 @@ func (c OpenshiftAPIConfig) GetRestStorage() (map[schema.GroupVersion]map[string
 
 		"policies":       authStorage.Policy,
 		"policyBindings": authStorage.PolicyBinding,
-		"roles":          authStorage.Role,
-		"roleBindings":   authStorage.RoleBinding,
+		"roles":          authProxy.Role,
+		"roleBindings":   authProxy.RoleBinding,
 
 		"clusterPolicies":       authStorage.ClusterPolicy,
 		"clusterPolicyBindings": authStorage.ClusterPolicyBinding,
-		"clusterRoleBindings":   authStorage.ClusterRoleBinding,
-		"clusterRoles":          authStorage.ClusterRole,
+		"clusterRoleBindings":   authProxy.ClusterRoleBinding,
+		"clusterRoles":          authProxy.ClusterRole,
 
 		"roleBindingRestrictions": roleBindingRestrictionStorage,
 	}
