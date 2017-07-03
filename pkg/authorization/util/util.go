@@ -8,6 +8,7 @@ import (
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/kubernetes/pkg/apis/authorization"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/authorization/internalversion"
+	rbacinternal "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
 
 	clusterpolicyregistry "github.com/openshift/origin/pkg/authorization/registry/clusterpolicy"
 	clusterpolicyetcd "github.com/openshift/origin/pkg/authorization/registry/clusterpolicy/etcd"
@@ -136,4 +137,18 @@ type AuthorizationStorage struct {
 	RoleBinding          rolebinding.Storage
 	ClusterRole          clusterrole.Storage
 	ClusterRoleBinding   clusterrolebinding.Storage
+}
+
+func GetAuthorizationProxy(rbacclient rbacinternal.RbacInterface) (*AuthorizationStorage, error) {
+	roleProxy := role.NewREST(rbacclient)
+	roleBindingProxy := rolebinding.NewREST(rbacclient)
+	clusterRoleProxy := clusterrole.NewREST(rbacclient)
+	clusterRoleBindingProxy := clusterrolebinding.NewREST(rbacclient)
+
+	return &AuthorizationStorage{
+		Role:               roleProxy,
+		RoleBinding:        roleBindingProxy,
+		ClusterRole:        clusterRoleProxy,
+		ClusterRoleBinding: clusterRoleBindingProxy,
+	}, nil
 }
