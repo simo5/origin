@@ -419,7 +419,7 @@ func BuildOpenshiftControllerConfig(options configapi.MasterConfig, informers In
 	var err error
 	ret := &origincontrollers.OpenshiftControllerConfig{}
 
-	kubeInternal, loopbackClientConfig, err := configapi.GetInternalKubeClient(options.MasterClients.OpenShiftLoopbackKubeConfig, options.MasterClients.OpenShiftLoopbackClientConnectionOverrides)
+	_, loopbackClientConfig, err := configapi.GetInternalKubeClient(options.MasterClients.OpenShiftLoopbackKubeConfig, options.MasterClients.OpenShiftLoopbackClientConnectionOverrides)
 	if err != nil {
 		return nil, err
 	}
@@ -527,11 +527,6 @@ func BuildOpenshiftControllerConfig(options configapi.MasterConfig, informers In
 	ret.IngressIPControllerConfig = origincontrollers.IngressIPControllerConfig{
 		IngressIPSyncPeriod:  10 * time.Minute,
 		IngressIPNetworkCIDR: options.NetworkConfig.IngressIPNetworkCIDR,
-	}
-
-	// this needs a privileged client to skip the RBAC escalation checks.
-	ret.OriginToRBACSyncControllerConfig = origincontrollers.OriginToRBACSyncControllerConfig{
-		PrivilegedRBACClient: kubeInternal.Rbac(),
 	}
 
 	// TODO rewire this to accep them during the init function
