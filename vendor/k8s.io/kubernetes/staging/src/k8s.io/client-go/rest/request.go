@@ -510,6 +510,17 @@ func (r *Request) SetHeader(key, value string) *Request {
 	return r
 }
 
+func (r *Request) SetHeaderValues(key string, values []string) *Request {
+	if r.headers == nil {
+		r.headers = http.Header{}
+	}
+	r.headers.Del(key)
+	for _, value := range values {
+		r.headers.Add(key, value)
+	}
+	return r
+}
+
 // Timeout makes the request use the given duration as a timeout. Sets the "timeout"
 // parameter.
 func (r *Request) Timeout(d time.Duration) *Request {
