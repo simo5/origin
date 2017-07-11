@@ -8,7 +8,6 @@ import (
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/apis/rbac"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
@@ -80,6 +79,9 @@ func (rbs *RoleBindingStorage) Get(ctx apirequest.Context, name string, options 
 
 	ret, err := client.Get(name, *options)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			err = apierrors.NewNotFound(authorizationapi.Resource("rolebinding"), name)
+		}
 		return nil, err
 	}
 
@@ -133,7 +135,7 @@ func (rbs *RoleBindingStorage) Update(ctx apirequest.Context, name string, objIn
 	old, err := client.Get(name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = apierrors.NewNotFound(rbac.Resource("clusterrolebinding"), name)
+			err = apierrors.NewNotFound(authorizationapi.Resource("rolebinding"), name)
 		}
 		return nil, false, err
 	}

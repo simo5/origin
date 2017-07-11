@@ -8,7 +8,6 @@ import (
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/apis/rbac"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
@@ -78,6 +77,9 @@ func (rs *RoleStorage) Get(ctx apirequest.Context, name string, options *metav1.
 
 	ret, err := client.Get(name, *options)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			err = apierrors.NewNotFound(authorizationapi.Resource("role"), name)
+		}
 		return nil, err
 	}
 
@@ -131,7 +133,7 @@ func (rs *RoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.
 	old, err := client.Get(name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = apierrors.NewNotFound(rbac.Resource("role"), name)
+			err = apierrors.NewNotFound(authorizationapi.Resource("role"), name)
 		}
 		return nil, false, err
 	}
