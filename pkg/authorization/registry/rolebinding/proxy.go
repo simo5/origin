@@ -13,20 +13,8 @@ import (
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/registry/util"
+	"github.com/openshift/origin/pkg/authorization/util/convert"
 )
-
-// FIXME: deep copies
-func rbacToRoleBinding(in *rbac.RoleBinding) (authorizationapi.RoleBinding, error) {
-	var out authorizationapi.RoleBinding
-	err := authorizationapi.Convert_rbac_RoleBinding_To_authorization_RoleBinding(in, &out, nil)
-	return out, err
-}
-
-func rbacFromRoleBinding(in *authorizationapi.RoleBinding) (rbac.RoleBinding, error) {
-	var out rbac.RoleBinding
-	err := authorizationapi.Convert_authorization_RoleBinding_To_rbac_RoleBinding(in, &out, nil)
-	return out, err
-}
 
 func getImpersonatingClient(ctx apirequest.Context, rbacclient internalversion.RbacInterface) (internalversion.RoleBindingInterface, error) {
 	namespace, ok := apirequest.NamespaceFrom(ctx)
@@ -75,11 +63,11 @@ func (rbs *RoleBindingStorage) List(ctx apirequest.Context, options *metainterna
 
 	ret := &authorizationapi.RoleBindingList{}
 	for _, curr := range roles.Items {
-		role, err := rbacToRoleBinding(&curr)
+		role, err := convert.RoleBindingFromRBAC(&curr)
 		if err != nil {
 			return nil, err
 		}
-		ret.Items = append(ret.Items, role)
+		ret.Items = append(ret.Items, *role)
 	}
 	return ret, err
 }
@@ -95,11 +83,11 @@ func (rbs *RoleBindingStorage) Get(ctx apirequest.Context, name string, options 
 		return nil, err
 	}
 
-	role, err := rbacToRoleBinding(ret)
+	role, err := convert.RoleBindingFromRBAC(ret)
 	if err != nil {
 		return nil, err
 	}
-	return &role, err
+	return role, err
 }
 
 func (rbs *RoleBindingStorage) Delete(ctx apirequest.Context, name string, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
@@ -122,18 +110,18 @@ func (rbs *RoleBindingStorage) Create(ctx apirequest.Context, obj runtime.Object
 	}
 
 	clusterObj := obj.(*authorizationapi.RoleBinding)
-	convertedObj, err := rbacFromRoleBinding(clusterObj)
+	convertedObj, err := convert.RoleBindingToRBAC(clusterObj)
 
-	ret, err := client.Create(&convertedObj)
+	ret, err := client.Create(convertedObj)
 	if err != nil {
 		return nil, err
 	}
 
-	role, err := rbacToRoleBinding(ret)
+	role, err := convert.RoleBindingFromRBAC(ret)
 	if err != nil {
 		return nil, err
 	}
-	return &role, err
+	return role, err
 }
 
 func (rbs *RoleBindingStorage) Update(ctx apirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
@@ -150,31 +138,31 @@ func (rbs *RoleBindingStorage) Update(ctx apirequest.Context, name string, objIn
 		return nil, false, err
 	}
 
-	oldRoleBinding, err := rbacToRoleBinding(old)
+	oldRoleBinding, err := convert.RoleBindingFromRBAC(old)
 	if err != nil {
 		return nil, false, err
 	}
 
-	obj, err := objInfo.UpdatedObject(ctx, &oldRoleBinding)
+	obj, err := objInfo.UpdatedObject(ctx, oldRoleBinding)
 	if err != nil {
 		return nil, false, err
 	}
 
-	updatedRoleBinding, err := rbacFromRoleBinding(obj.(*authorizationapi.RoleBinding))
+	updatedRoleBinding, err := convert.RoleBindingToRBAC(obj.(*authorizationapi.RoleBinding))
 	if err != nil {
 		return nil, false, err
 	}
 
-	ret, err := client.Update(&updatedRoleBinding)
+	ret, err := client.Update(updatedRoleBinding)
 	if err != nil {
 		return nil, false, err
 	}
 
-	role, err := rbacToRoleBinding(ret)
+	role, err := convert.RoleBindingFromRBAC(ret)
 	if err != nil {
 		return nil, false, err
 	}
-	return &role, false, err
+	return role, false, err
 }
 
 // FIXME: Legacy functions, to be removed eventually

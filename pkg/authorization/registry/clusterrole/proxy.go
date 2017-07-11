@@ -13,19 +13,8 @@ import (
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/registry/util"
+	"github.com/openshift/origin/pkg/authorization/util/convert"
 )
-
-func rbacToClusterRole(in *rbac.ClusterRole) (authorizationapi.ClusterRole, error) {
-	var out authorizationapi.ClusterRole
-	err := authorizationapi.Convert_rbac_ClusterRole_To_authorization_ClusterRole(in, &out, nil)
-	return out, err
-}
-
-func rbacFromClusterRole(in *authorizationapi.ClusterRole) (rbac.ClusterRole, error) {
-	var out rbac.ClusterRole
-	err := authorizationapi.Convert_authorization_ClusterRole_To_rbac_ClusterRole(in, &out, nil)
-	return out, err
-}
 
 func getImpersonatingClient(ctx apirequest.Context, rbacclient internalversion.RbacInterface) (internalversion.ClusterRoleInterface, error) {
 	restclient, err := util.NewImpersonatingRESTClient(ctx, rbacclient.RESTClient())
@@ -68,11 +57,11 @@ func (crs *ClusterRoleStorage) List(ctx apirequest.Context, options *metainterna
 
 	ret := &authorizationapi.ClusterRoleList{}
 	for _, curr := range roles.Items {
-		role, err := rbacToClusterRole(&curr)
+		role, err := convert.ClusterRoleFromRBAC(&curr)
 		if err != nil {
 			return nil, err
 		}
-		ret.Items = append(ret.Items, role)
+		ret.Items = append(ret.Items, *role)
 	}
 	return ret, err
 }
@@ -88,11 +77,11 @@ func (crs *ClusterRoleStorage) Get(ctx apirequest.Context, name string, options 
 		return nil, err
 	}
 
-	role, err := rbacToClusterRole(ret)
+	role, err := convert.ClusterRoleFromRBAC(ret)
 	if err != nil {
 		return nil, err
 	}
-	return &role, err
+	return role, err
 }
 
 func (crs *ClusterRoleStorage) Delete(ctx apirequest.Context, name string, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
@@ -115,18 +104,18 @@ func (crs *ClusterRoleStorage) Create(ctx apirequest.Context, obj runtime.Object
 	}
 
 	clusterObj := obj.(*authorizationapi.ClusterRole)
-	convertedObj, err := rbacFromClusterRole(clusterObj)
+	convertedObj, err := convert.ClusterRoleToRBAC(clusterObj)
 
-	ret, err := client.Create(&convertedObj)
+	ret, err := client.Create(convertedObj)
 	if err != nil {
 		return nil, err
 	}
 
-	role, err := rbacToClusterRole(ret)
+	role, err := convert.ClusterRoleFromRBAC(ret)
 	if err != nil {
 		return nil, err
 	}
-	return &role, err
+	return role, err
 }
 
 func (crs *ClusterRoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
@@ -143,31 +132,31 @@ func (crs *ClusterRoleStorage) Update(ctx apirequest.Context, name string, objIn
 		return nil, false, err
 	}
 
-	oldRole, err := rbacToClusterRole(old)
+	oldRole, err := convert.ClusterRoleFromRBAC(old)
 	if err != nil {
 		return nil, false, err
 	}
 
-	obj, err := objInfo.UpdatedObject(ctx, &oldRole)
+	obj, err := objInfo.UpdatedObject(ctx, oldRole)
 	if err != nil {
 		return nil, false, err
 	}
 
-	updatedRole, err := rbacFromClusterRole(obj.(*authorizationapi.ClusterRole))
+	updatedRole, err := convert.ClusterRoleToRBAC(obj.(*authorizationapi.ClusterRole))
 	if err != nil {
 		return nil, false, err
 	}
 
-	ret, err := client.Update(&updatedRole)
+	ret, err := client.Update(updatedRole)
 	if err != nil {
 		return nil, false, err
 	}
 
-	role, err := rbacToClusterRole(ret)
+	role, err := convert.ClusterRoleFromRBAC(ret)
 	if err != nil {
 		return nil, false, err
 	}
-	return &role, false, err
+	return role, false, err
 }
 
 func (crs *ClusterRoleStorage) CreateClusterRoleWithEscalation(ctx apirequest.Context, obj *authorizationapi.ClusterRole) (*authorizationapi.ClusterRole, error) {
