@@ -82,6 +82,7 @@ var expectedIndex = []string{
 	"/healthz/poststarthook/bootstrap-controller",
 	"/healthz/poststarthook/ca-registration",
 	// "/healthz/poststarthook/extensions/third-party-resources",  // Do not enable this controller, we do not support it
+	"/healthz/poststarthook/rbac/bootstrap-roles",
 	"/healthz/ready",
 	"/metrics",
 	"/oapi",
