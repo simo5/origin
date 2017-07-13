@@ -2,6 +2,7 @@ package origin
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,11 +25,12 @@ import (
 	kclientsetinternal "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	kubeapiserver "k8s.io/kubernetes/pkg/master"
 	kcorestorage "k8s.io/kubernetes/pkg/registry/core/rest"
+	rbacrest "k8s.io/kubernetes/pkg/registry/rbac/rest"
 
-	"crypto/x509"
 	"github.com/openshift/origin/pkg/authorization/authorizer"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	serverauthenticator "github.com/openshift/origin/pkg/cmd/server/authenticator"
+	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
 	"github.com/openshift/origin/pkg/cmd/server/crypto"
 	serverhandlers "github.com/openshift/origin/pkg/cmd/server/handlers"
 	kubernetes "github.com/openshift/origin/pkg/cmd/server/kubernetes/master"
@@ -164,6 +166,10 @@ func (c *MasterConfig) Run(kubeAPIServerConfig *kubeapiserver.Config, assetConfi
 	kubeAPIServer.GenericAPIServer.SetAdmission(openshiftAPIServerConfig.GenericConfig.AdmissionControl)
 	installAPIs(openshiftAPIServerConfig, kubeAPIServer.GenericAPIServer)
 	kubeAPIServer.GenericAPIServer.SetAdmission(kubeAPIServerConfig.GenericConfig.AdmissionControl)
+
+	if err := kubeAPIServer.GenericAPIServer.AddPostStartHook("rbac/bootstrap-openshift-roles", rbacrest.GetPostStartHook(bootstrappolicy.Policy())); err != nil {
+		glog.Fatalf("Failed to bootstrap openshift roles: %v", err)
+	}
 
 	// this sets up the openapi endpoints
 	preparedKubeAPIServer := kubeAPIServer.GenericAPIServer.PrepareRun()
