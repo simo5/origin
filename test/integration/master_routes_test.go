@@ -98,6 +98,7 @@ var expectedIndex = []string{
 	"/healthz/poststarthook/start-apiextensions-controllers",
 	"/healthz/poststarthook/start-apiextensions-informers",
 	"/healthz/poststarthook/start-kube-aggregator-informers",
+	"/healthz/poststarthook/rbac/bootstrap-openshift-roles",
 	"/healthz/ready",
 	"/metrics",
 	"/oapi",
