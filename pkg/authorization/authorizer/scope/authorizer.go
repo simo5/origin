@@ -6,6 +6,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 	kauthorizer "k8s.io/apiserver/pkg/authorization/authorizer"
+	authorizerrbac "k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	defaultauthorizer "github.com/openshift/origin/pkg/authorization/authorizer"
@@ -42,16 +43,9 @@ func (a *scopeAuthorizer) Authorize(attributes authorizer.Attributes) (bool, str
 		nonFatalErrors = append(nonFatalErrors, err)
 	}
 
-	for _, rule := range rules {
-		// check rule against attributes
-		matches, err := defaultauthorizer.RuleMatches(attributes, rule)
-		if err != nil {
-			nonFatalErrors = append(nonFatalErrors, err)
-			continue
-		}
-		if matches {
-			return a.delegate.Authorize(attributes)
-		}
+	// check rules against attributes
+	if authorizerrbac.RulesAllow(attributes, rules...) {
+		return a.delegate.Authorize(attributes)
 	}
 
 	denyReason, err := a.forbiddenMessageMaker.MakeMessage(attributes)

@@ -5,17 +5,20 @@ import (
 
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apiserver/pkg/authentication/serviceaccount"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
+	"k8s.io/kubernetes/pkg/apis/rbac"
+	authorizerrbac "k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
 
 	"github.com/openshift/origin/pkg/authorization/rulevalidation"
 )
 
 type openshiftAuthorizer struct {
-	ruleResolver          rulevalidation.AuthorizationRuleResolver
+	ruleResolver          rulevalidation.AuthorizationRbacRuleResolver
 	forbiddenMessageMaker ForbiddenMessageMaker
 }
 
-func NewAuthorizer(ruleResolver rulevalidation.AuthorizationRuleResolver, forbiddenMessageMaker ForbiddenMessageMaker) (authorizer.Authorizer, SubjectLocator) {
+func NewAuthorizer(ruleResolver rulevalidation.AuthorizationRbacRuleResolver, forbiddenMessageMaker ForbiddenMessageMaker) (authorizer.Authorizer, SubjectLocator) {
 	ret := &openshiftAuthorizer{ruleResolver, forbiddenMessageMaker}
 	return ret, ret
 }
@@ -49,37 +52,70 @@ func (a *openshiftAuthorizer) GetAllowedSubjects(attributes authorizer.Attribute
 	return a.getAllowedSubjectsFromNamespaceBindings(attributes)
 }
 
+func roleMatcher(r rulevalidation.AuthorizationRbacRuleResolver,
+	roleRef rbac.RoleRef, subjects []rbac.Subject,
+	attributes authorizer.Attributes,
+	users, groups *sets.String) error {
+	namespace := attributes.GetNamespace()
+
+	rules, err := r.GetRoleReferenceRules(roleRef, namespace)
+	if err != nil {
+		return err
+	}
+	if authorizerrbac.RulesAllow(attributes, rules...) {
+		for _, subject := range subjects {
+			switch subject.Kind {
+			case rbac.UserKind:
+				users.Insert(subject.Name)
+			case rbac.GroupKind:
+				groups.Insert(subject.Name)
+			case rbac.ServiceAccountKind:
+				// default the namespace to namespace we're working in if
+				// it's available. This allows rolebindings that reference
+				// SAs in the local namespace to avoid having to qualify
+				// them.
+				ns := namespace
+				if len(subject.Namespace) > 0 {
+					ns = subject.Namespace
+				}
+				if len(ns) >= 0 {
+					name := serviceaccount.MakeUsername(ns, subject.Name)
+					users.Insert(name)
+				}
+			default:
+				continue
+			}
+		}
+	}
+	return nil
+}
+
 func (a *openshiftAuthorizer) getAllowedSubjectsFromNamespaceBindings(attributes authorizer.Attributes) (sets.String, sets.String, error) {
 	var errs []error
 
-	roleBindings, err := a.ruleResolver.GetRoleBindings(attributes.GetNamespace())
+	clusterRoleBindings, roleBindings, err := a.ruleResolver.GetRoleBindings(attributes.GetNamespace())
 	if err != nil {
 		errs = append(errs, err)
 	}
 
 	users := sets.String{}
 	groups := sets.String{}
-	for _, roleBinding := range roleBindings {
-		role, err := a.ruleResolver.GetRole(roleBinding)
-		if err != nil {
-			// If we got an error, then the list of subjects may not be complete, but it does not contain any incorrect names.
-			// This is done because policy rules are purely additive and policy determinations
-			// can be made on the basis of those rules that are found.
+	for _, clusterRoleBinding := range clusterRoleBindings {
+		if err := roleMatcher(a.ruleResolver,
+			clusterRoleBinding.RoleRef,
+			clusterRoleBinding.Subjects,
+			attributes, &users, &groups); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-
-		for _, rule := range role.Rules() {
-			matches, err := RuleMatches(attributes, rule)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-
-			if matches {
-				users.Insert(roleBinding.Users().List()...)
-				groups.Insert(roleBinding.Groups().List()...)
-			}
+	}
+	for _, roleBinding := range roleBindings {
+		if err := roleMatcher(a.ruleResolver,
+			roleBinding.RoleRef,
+			roleBinding.Subjects,
+			attributes, &users, &groups); err != nil {
+			errs = append(errs, err)
+			continue
 		}
 	}
 
@@ -93,20 +129,13 @@ func (a *openshiftAuthorizer) authorizeWithNamespaceRules(attributes authorizer.
 	allRules, ruleRetrievalError := a.ruleResolver.RulesFor(attributes.GetUser(), attributes.GetNamespace())
 
 	var errs []error
-	for _, rule := range allRules {
-		matches, err := RuleMatches(attributes, rule)
-		if err != nil {
-			errs = append(errs, err)
-			continue
+	if authorizerrbac.RulesAllow(attributes, allRules...) {
+		if len(attributes.GetNamespace()) == 0 {
+			return true, "allowed by cluster rule", nil
 		}
-		if matches {
-			if len(attributes.GetNamespace()) == 0 {
-				return true, "allowed by cluster rule", nil
-			}
-			// not 100% accurate, because the rule may have been provided by a cluster rule. we no longer have
-			// this distinction upstream in practice.
-			return true, "allowed by rule in " + attributes.GetNamespace(), nil
-		}
+		// not 100% accurate, because the rule may have been provided by a cluster rule. we no longer have
+		// this distinction upstream in practice.
+		return true, "allowed by rule in " + attributes.GetNamespace(), nil
 	}
 	if len(errs) == 0 {
 		return false, "", ruleRetrievalError

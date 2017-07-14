@@ -267,8 +267,14 @@ func BuildMasterConfig(options configapi.MasterConfig, informers InformerAccess)
 		informers.GetAuthorizationInformers().Authorization().InternalVersion().ClusterPolicies().Lister(),
 		informers.GetAuthorizationInformers().Authorization().InternalVersion().ClusterPolicyBindings().Lister(),
 	)
+	ruleRbacResolver := rulevalidation.NewDefaultRbacRuleResolver(
+		informers.GetInternalKubeInformers().Rbac().InternalVersion().Roles().Lister(),
+		informers.GetInternalKubeInformers().Rbac().InternalVersion().RoleBindings().Lister(),
+		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoles().Lister(),
+		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoleBindings().Lister(),
+	)
 	authorizer, subjectLocator := newAuthorizer(
-		ruleResolver,
+		ruleRbacResolver,
 		informers.GetAuthorizationInformers().Authorization().InternalVersion(),
 		options.ProjectConfig.ProjectRequestMessage)
 
@@ -1009,7 +1015,7 @@ func newProjectAuthorizationCache(subjectLocator authorizer.SubjectLocator, kube
 	)
 }
 
-func newAuthorizer(ruleResolver rulevalidation.AuthorizationRuleResolver, authorizationInformer authorizationinternalinformer.Interface, projectRequestDenyMessage string) (kauthorizer.Authorizer, authorizer.SubjectLocator) {
+func newAuthorizer(ruleResolver rulevalidation.AuthorizationRbacRuleResolver, authorizationInformer authorizationinternalinformer.Interface, projectRequestDenyMessage string) (kauthorizer.Authorizer, authorizer.SubjectLocator) {
 	messageMaker := authorizer.NewForbiddenMessageResolver(projectRequestDenyMessage)
 	roleBasedAuthorizer, subjectLocator := authorizer.NewAuthorizer(ruleResolver, messageMaker)
 	scopeLimitedAuthorizer := scope.NewAuthorizer(roleBasedAuthorizer, authorizationInformer.ClusterPolicies().Lister(), messageMaker)

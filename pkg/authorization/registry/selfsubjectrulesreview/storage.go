@@ -76,10 +76,11 @@ func (r *REST) Create(ctx apirequest.Context, obj runtime.Object) (runtime.Objec
 }
 
 func (r *REST) filterRulesByScopes(rules []authorizationapi.PolicyRule, scopes []string, namespace string) ([]authorizationapi.PolicyRule, error) {
-	scopeRules, err := scope.ScopesToRules(scopes, namespace, r.clusterPolicyGetter)
+	rbacScopeRules, err := scope.ScopesToRules(scopes, namespace, r.clusterPolicyGetter)
 	if err != nil {
 		return nil, err
 	}
+	scopeRules := authorizationapi.Convert_rbac_PolicyRules_To_authorization_PolicyRules(rbacScopeRules)
 
 	filteredRules := []authorizationapi.PolicyRule{}
 	for _, rule := range rules {

@@ -100,10 +100,11 @@ func GetEffectivePolicyRules(ctx apirequest.Context, ruleResolver rulevalidation
 }
 
 func filterRulesByScopes(rules []authorizationapi.PolicyRule, scopes []string, namespace string, clusterPolicyGetter authorizationlister.ClusterPolicyLister) ([]authorizationapi.PolicyRule, error) {
-	scopeRules, err := scope.ScopesToRules(scopes, namespace, clusterPolicyGetter)
+	rbacScopeRules, err := scope.ScopesToRules(scopes, namespace, clusterPolicyGetter)
 	if err != nil {
 		return nil, err
 	}
+	scopeRules := authorizationapi.Convert_rbac_PolicyRules_To_authorization_PolicyRules(rbacScopeRules)
 
 	filteredRules := []authorizationapi.PolicyRule{}
 	for _, rule := range rules {
