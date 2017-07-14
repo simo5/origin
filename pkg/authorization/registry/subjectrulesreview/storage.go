@@ -9,20 +9,21 @@ import (
 	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/authentication/user"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+	rbaclisters "k8s.io/kubernetes/pkg/client/listers/rbac/internalversion"
+	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/authorizer/scope"
-	authorizationlister "github.com/openshift/origin/pkg/authorization/generated/listers/authorization/internalversion"
 	"github.com/openshift/origin/pkg/authorization/rulevalidation"
 )
 
 type REST struct {
-	ruleResolver        rulevalidation.AuthorizationRuleResolver
-	clusterPolicyGetter authorizationlister.ClusterPolicyLister
+	ruleResolver      rbacregistryvalidation.AuthorizationRuleResolver
+	clusterRoleGetter rbaclisters.ClusterRoleLister
 }
 
-func NewREST(ruleResolver rulevalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) *REST {
-	return &REST{ruleResolver: ruleResolver, clusterPolicyGetter: clusterPolicyGetter}
+func NewREST(ruleResolver rbacregistryvalidation.AuthorizationRuleResolver, clusterRoleGetter rbaclisters.ClusterRoleLister) *REST {
+	return &REST{ruleResolver: ruleResolver, clusterRoleGetter: clusterRoleGetter}
 }
 
 func (r *REST) New() runtime.Object {
@@ -49,7 +50,7 @@ func (r *REST) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runti
 		userToCheck.Extra[authorizationapi.ScopesKey] = rulesReview.Spec.Scopes
 	}
 
-	rules, errors := GetEffectivePolicyRules(apirequest.WithUser(ctx, userToCheck), r.ruleResolver, r.clusterPolicyGetter)
+	rules, errors := GetEffectivePolicyRules(apirequest.WithUser(ctx, userToCheck), r.ruleResolver, r.clusterRoleGetter)
 
 	ret := &authorizationapi.SubjectRulesReview{
 		Status: authorizationapi.SubjectRulesReviewStatus{
@@ -64,7 +65,7 @@ func (r *REST) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runti
 	return ret, nil
 }
 
-func GetEffectivePolicyRules(ctx apirequest.Context, ruleResolver rulevalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) ([]authorizationapi.PolicyRule, []error) {
+func GetEffectivePolicyRules(ctx apirequest.Context, ruleResolver rbacregistryvalidation.AuthorizationRuleResolver, clusterRoleGetter rbaclisters.ClusterRoleLister) ([]authorizationapi.PolicyRule, []error) {
 	namespace := apirequest.NamespaceValue(ctx)
 	if len(namespace) == 0 {
 		return nil, []error{kapierrors.NewBadRequest(fmt.Sprintf("namespace is required on this type: %v", namespace))}
@@ -80,12 +81,12 @@ func GetEffectivePolicyRules(ctx apirequest.Context, ruleResolver rulevalidation
 	if err != nil {
 		errors = append(errors, err)
 	}
-	for _, rule := range namespaceRules {
+	for _, rule := range authorizationapi.Convert_rbac_PolicyRules_To_authorization_PolicyRules(namespaceRules) { // TODO fix this nonsense
 		rules = append(rules, rulevalidation.BreakdownRule(rule)...)
 	}
 
 	if scopes := user.GetExtra()[authorizationapi.ScopesKey]; len(scopes) > 0 {
-		rules, err = filterRulesByScopes(rules, scopes, namespace, clusterPolicyGetter)
+		rules, err = filterRulesByScopes(rules, scopes, namespace, clusterRoleGetter)
 		if err != nil {
 			return nil, []error{kapierrors.NewInternalError(err)}
 		}
@@ -99,11 +100,12 @@ func GetEffectivePolicyRules(ctx apirequest.Context, ruleResolver rulevalidation
 	return rules, errors
 }
 
-func filterRulesByScopes(rules []authorizationapi.PolicyRule, scopes []string, namespace string, clusterPolicyGetter authorizationlister.ClusterPolicyLister) ([]authorizationapi.PolicyRule, error) {
-	scopeRules, err := scope.ScopesToRules(scopes, namespace, clusterPolicyGetter)
+func filterRulesByScopes(rules []authorizationapi.PolicyRule, scopes []string, namespace string, clusterRoleGetter rbaclisters.ClusterRoleLister) ([]authorizationapi.PolicyRule, error) {
+	rbacScopeRules, err := scope.ScopesToRules(scopes, namespace, clusterRoleGetter)
 	if err != nil {
 		return nil, err
 	}
+	scopeRules := authorizationapi.Convert_rbac_PolicyRules_To_authorization_PolicyRules(rbacScopeRules)
 
 	filteredRules := []authorizationapi.PolicyRule{}
 	for _, rule := range rules {

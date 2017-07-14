@@ -20,12 +20,12 @@ import (
 	kclientsetinternal "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	kinternalinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
+	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 
 	"github.com/openshift/origin/pkg/api"
 	"github.com/openshift/origin/pkg/api/v1"
 	"github.com/openshift/origin/pkg/authorization/authorizer"
 	authorizationinformer "github.com/openshift/origin/pkg/authorization/generated/informers/internalversion"
-	"github.com/openshift/origin/pkg/authorization/rulevalidation"
 	osclient "github.com/openshift/origin/pkg/client"
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	imageadmission "github.com/openshift/origin/pkg/image/admission"
@@ -69,7 +69,7 @@ type OpenshiftAPIConfig struct {
 	DeprecatedOpenshiftClient *osclient.Client
 
 	// these are all required to build our storage
-	RuleResolver   rulevalidation.AuthorizationRuleResolver
+	RuleResolver   rbacregistryvalidation.AuthorizationRuleResolver
 	SubjectLocator authorizer.SubjectLocator
 	LimitVerifier  imageadmission.LimitVerifier
 	// RegistryNameFn retrieves the name of the integrated registry, or false if no such registry

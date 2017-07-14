@@ -1,6 +1,6 @@
 package origin
 
-import authorizationlister "github.com/openshift/origin/pkg/authorization/generated/listers/authorization/internalversion"
+import rbaclisters "k8s.io/kubernetes/pkg/client/listers/rbac/internalversion"
 
 // These adapters are temporary and will be removed when the authorization chains are refactored
 // to use Listers.
@@ -9,38 +9,38 @@ type LastSyncResourceVersioner interface {
 	LastSyncResourceVersion() string
 }
 
-type policyLister struct {
-	authorizationlister.PolicyLister
+type roleLister struct {
+	rbaclisters.RoleLister
 	versioner LastSyncResourceVersioner
 }
 
-func (l policyLister) LastSyncResourceVersion() string {
+func (l roleLister) LastSyncResourceVersion() string {
 	return l.versioner.LastSyncResourceVersion()
 }
 
-type clusterPolicyLister struct {
-	authorizationlister.ClusterPolicyLister
+type clusterRoleLister struct {
+	rbaclisters.ClusterRoleLister
 	versioner LastSyncResourceVersioner
 }
 
-func (l clusterPolicyLister) LastSyncResourceVersion() string {
+func (l clusterRoleLister) LastSyncResourceVersion() string {
 	return l.versioner.LastSyncResourceVersion()
 }
 
-type policyBindingLister struct {
-	authorizationlister.PolicyBindingLister
+type roleBindingLister struct {
+	rbaclisters.RoleBindingLister
 	versioner LastSyncResourceVersioner
 }
 
-func (l policyBindingLister) LastSyncResourceVersion() string {
+func (l roleBindingLister) LastSyncResourceVersion() string {
 	return l.versioner.LastSyncResourceVersion()
 }
 
-type clusterPolicyBindingLister struct {
-	authorizationlister.ClusterPolicyBindingLister
+type clusterRoleBindingLister struct {
+	rbaclisters.ClusterRoleBindingLister
 	versioner LastSyncResourceVersioner
 }
 
-func (l clusterPolicyBindingLister) LastSyncResourceVersion() string {
+func (l clusterRoleBindingLister) LastSyncResourceVersion() string {
 	return l.versioner.LastSyncResourceVersion()
 }
