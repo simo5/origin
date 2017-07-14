@@ -5,6 +5,7 @@ import (
 	kruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/apis/rbac"
 )
 
 // Authorization is calculated against
@@ -53,6 +54,12 @@ var DiscoveryRule = PolicyRule{
 		"/osapi", "/osapi/", // these cannot be removed until we can drop support for pre 3.1 clients
 		"/.well-known", "/.well-known/*",
 	),
+}
+
+// The Kubernetes Rbac version
+var RbacDiscoveryRule = rbac.PolicyRule{
+	Verbs:           DiscoveryRule.Verbs.List(),
+	NonResourceURLs: DiscoveryRule.NonResourceURLs.List(),
 }
 
 // PolicyRule holds information that describes a policy rule, but does not contain information

@@ -14,7 +14,7 @@ import (
 
 func TestDelegatedWait(t *testing.T) {
 	cache := &testReadOnlyPolicyBinding{}
-	storage := &REST{policyBindings: cache}
+	storage := &REST{roleBindings: cache}
 
 	cache.binding = &authorizationapi.PolicyBinding{}
 	cache.binding.RoleBindings = map[string]*authorizationapi.RoleBinding{}
