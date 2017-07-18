@@ -452,9 +452,9 @@ func BenchmarkAuthorize(b *testing.B) {
 		clusterRoleBindings = append(clusterRoleBindings, &bootstrapBindings[i])
 	}
 
-	_, resolver := rbacregistryvalidation.NewTestRuleResolver(nil, nil, clusterRoles, clusterRoleBindings)
+	resolver, _ := rbacregistryvalidation.NewTestRuleResolver(nil, nil, clusterRoles, clusterRoleBindings)
 
-	authz := New(resolver, resolver, resolver, resolver)
+	authz := New(resolver)
 
 	nodeUser := &user.DefaultInfo{Name: "system:node:node1", Groups: []string{"system:nodes", "system:authenticated"}}
 	requests := []struct {
