@@ -92,18 +92,19 @@ func (l *clusterRoleBindingLister) ListClusterRoleBindings() ([]*rbacapi.Cluster
 	return l.lister.List(labels.Everything())
 }
 
-func NewRBACRuleResolver(
+func NewRBACAuthorization(
 	roleLister rbaclisters.RoleLister,
 	bindingLister rbaclisters.RoleBindingLister,
 	clusterRoleLister rbaclisters.ClusterRoleLister,
 	clusterBindingLister rbaclisters.ClusterRoleBindingLister,
-) *rbacregistryvalidation.DefaultRuleResolver {
-	return rbacregistryvalidation.NewDefaultRuleResolver(
-		&roleGetter{roleLister},
-		&roleBindingLister{bindingLister},
-		&clusterRoleGetter{clusterRoleLister},
-		&clusterRoleBindingLister{clusterBindingLister},
-	)
+	superUser string,
+) (*rbacregistryvalidation.DefaultRuleResolver, *rbac.SubjectAccessEvaluator) {
+	roles := &roleGetter{roleLister}
+	roleBindings := &roleBindingLister{bindingLister}
+	clusterRoles := &clusterRoleGetter{clusterRoleLister}
+	clusterRoleBindings := &clusterRoleBindingLister{clusterBindingLister}
+	ruleResolver := rbacregistryvalidation.NewDefaultRuleResolver(roles, roleBindings, clusterRoles, clusterRoleBindings)
+	return ruleResolver, rbac.NewSubjectAccessEvaluator(roleBindings, clusterRoleBindings, ruleResolver, superUser)
 }
 
 // New returns the right sort of union of multiple authorizer.Authorizer objects
@@ -147,11 +148,12 @@ func (config AuthorizationConfig) New() (authorizer.Authorizer, error) {
 			}
 			authorizers = append(authorizers, webhookAuthorizer)
 		case modes.ModeRBAC:
-			ruleResolver := NewRBACRuleResolver(
+			ruleResolver, _ := NewRBACAuthorization(
 				config.InformerFactory.Rbac().InternalVersion().Roles().Lister(),
 				config.InformerFactory.Rbac().InternalVersion().RoleBindings().Lister(),
 				config.InformerFactory.Rbac().InternalVersion().ClusterRoles().Lister(),
 				config.InformerFactory.Rbac().InternalVersion().ClusterRoleBindings().Lister(),
+				"",
 			)
 			rbacAuthorizer := rbac.New(ruleResolver)
 			authorizers = append(authorizers, rbacAuthorizer)

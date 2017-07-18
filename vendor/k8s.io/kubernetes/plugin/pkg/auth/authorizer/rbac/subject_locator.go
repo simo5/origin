@@ -31,6 +31,10 @@ type RoleToRuleMapper interface {
 	GetRoleReferenceRules(roleRef rbac.RoleRef, namespace string) ([]rbac.PolicyRule, error)
 }
 
+type SubjectLocator interface {
+	AllowedSubjects(attributes authorizer.Attributes) ([]rbac.Subject, error)
+}
+
 type SubjectAccessEvaluator struct {
 	superUser string
 
@@ -39,16 +43,13 @@ type SubjectAccessEvaluator struct {
 	roleToRuleMapper         RoleToRuleMapper
 }
 
-func NewSubjectAccessEvaluator(roles rbacregistryvalidation.RoleGetter, roleBindings rbacregistryvalidation.RoleBindingLister, clusterRoles rbacregistryvalidation.ClusterRoleGetter, clusterRoleBindings rbacregistryvalidation.ClusterRoleBindingLister, superUser string) *SubjectAccessEvaluator {
-	subjectLocator := &SubjectAccessEvaluator{
+func NewSubjectAccessEvaluator(roleBindings rbacregistryvalidation.RoleBindingLister, clusterRoleBindings rbacregistryvalidation.ClusterRoleBindingLister, roleToRuleMapper RoleToRuleMapper, superUser string) *SubjectAccessEvaluator {
+	return &SubjectAccessEvaluator{
 		superUser:                superUser,
 		roleBindingLister:        roleBindings,
 		clusterRoleBindingLister: clusterRoleBindings,
-		roleToRuleMapper: rbacregistryvalidation.NewDefaultRuleResolver(
-			roles, roleBindings, clusterRoles, clusterRoleBindings,
-		),
+		roleToRuleMapper:         roleToRuleMapper,
 	}
-	return subjectLocator
 }
 
 // AllowedSubjects returns the subjects that can perform an action and any errors encountered while computing the list.
