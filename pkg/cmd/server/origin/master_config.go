@@ -35,12 +35,15 @@ import (
 	authorizerunion "k8s.io/apiserver/pkg/authorization/union"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/cert"
 	kapi "k8s.io/kubernetes/pkg/api"
 	kclientsetexternal "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	kclientsetinternal "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	kinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions"
 	kinternalinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
+	rbacinformers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion/rbac/internalversion"
+	rbaclisters "k8s.io/kubernetes/pkg/client/listers/rbac/internalversion"
 	kcontroller "k8s.io/kubernetes/pkg/controller"
 	sacontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
 	kadmission "k8s.io/kubernetes/pkg/kubeapiserver/admission"
@@ -63,7 +66,6 @@ import (
 	"github.com/openshift/origin/pkg/authorization/authorizer"
 	"github.com/openshift/origin/pkg/authorization/authorizer/scope"
 	authorizationinformer "github.com/openshift/origin/pkg/authorization/generated/informers/internalversion"
-	authorizationinternalinformer "github.com/openshift/origin/pkg/authorization/generated/informers/internalversion/authorization/internalversion"
 	buildinformer "github.com/openshift/origin/pkg/build/generated/informers/internalversion"
 	osclient "github.com/openshift/origin/pkg/client"
 	oadmission "github.com/openshift/origin/pkg/cmd/server/admission"
@@ -274,7 +276,7 @@ func BuildMasterConfig(options configapi.MasterConfig, informers InformerAccess)
 	authorizer, subjectLocator := newAuthorizer(
 		rbacAuthorizer,
 		kubeSubjectLocator,
-		informers.GetAuthorizationInformers().Authorization().InternalVersion(),
+		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoles().Lister(),
 		options.ProjectConfig.ProjectRequestMessage,
 	)
 
@@ -339,9 +341,9 @@ func BuildMasterConfig(options configapi.MasterConfig, informers InformerAccess)
 		GroupCache: groupCache,
 		ProjectAuthorizationCache: newProjectAuthorizationCache(
 			subjectLocator,
-			privilegedLoopbackKubeClientsetInternal,
-			informers.GetInternalKubeInformers(),
-			informers.GetAuthorizationInformers().Authorization().InternalVersion()),
+			informers.GetInternalKubeInformers().Core().InternalVersion().Namespaces().Informer(),
+			informers.GetInternalKubeInformers().Rbac().InternalVersion(),
+		),
 		ProjectCache:                  projectCache,
 		ClusterQuotaMappingController: clusterQuotaMappingController,
 
@@ -1004,22 +1006,23 @@ func newAuthenticator(config configapi.MasterConfig, restOptionsGetter restoptio
 	return group.NewAuthenticatedGroupAdder(union.NewFailOnError(topLevelAuthenticators...)), nil
 }
 
-func newProjectAuthorizationCache(subjectLocator authorizer.SubjectLocator, kubeClient kclientsetinternal.Interface, internalKubeInformers kinternalinformers.SharedInformerFactory, authorizationInformers authorizationinternalinformer.Interface) *projectauth.AuthorizationCache {
+func newProjectAuthorizationCache(subjectLocator authorizer.SubjectLocator, namespaces cache.SharedIndexInformer, internalRBACInformers rbacinformers.Interface) *projectauth.AuthorizationCache {
 	return projectauth.NewAuthorizationCache(
-		internalKubeInformers.Core().InternalVersion().Namespaces().Informer(),
+		namespaces,
 		projectauth.NewAuthorizerReviewer(subjectLocator),
-		clusterPolicyLister{authorizationInformers.ClusterPolicies().Lister(), authorizationInformers.ClusterPolicies().Informer()},
-		clusterPolicyBindingLister{authorizationInformers.ClusterPolicyBindings().Lister(), authorizationInformers.ClusterPolicyBindings().Informer()},
-		policyLister{authorizationInformers.Policies().Lister(), authorizationInformers.Policies().Informer()},
-		policyBindingLister{authorizationInformers.PolicyBindings().Lister(), authorizationInformers.PolicyBindings().Informer()},
+		// TODO this needs cleanup and most of it probably can be deleted
+		clusterRoleLister{internalRBACInformers.ClusterRoles().Lister(), internalRBACInformers.ClusterRoles().Informer()},
+		clusterRoleBindingLister{internalRBACInformers.ClusterRoleBindings().Lister(), internalRBACInformers.ClusterRoleBindings().Informer()},
+		roleLister{internalRBACInformers.Roles().Lister(), internalRBACInformers.Roles().Informer()},
+		roleBindingLister{internalRBACInformers.RoleBindings().Lister(), internalRBACInformers.RoleBindings().Informer()},
 	)
 }
 
-func newAuthorizer(kubeAuthorizer kauthorizer.Authorizer, kubeSubjectLocator rbacauthorizer.SubjectLocator, authorizationInformer authorizationinternalinformer.Interface, projectRequestDenyMessage string) (kauthorizer.Authorizer, authorizer.SubjectLocator) {
+func newAuthorizer(kubeAuthorizer kauthorizer.Authorizer, kubeSubjectLocator rbacauthorizer.SubjectLocator, clusterRoleGetter rbaclisters.ClusterRoleLister, projectRequestDenyMessage string) (kauthorizer.Authorizer, authorizer.SubjectLocator) {
 	messageMaker := authorizer.NewForbiddenMessageResolver(projectRequestDenyMessage)
 	roleBasedAuthorizer := authorizer.NewAuthorizer(kubeAuthorizer, messageMaker)
 	subjectLocator := authorizer.NewSubjectLocator(kubeSubjectLocator)
-	scopeLimitedAuthorizer := scope.NewAuthorizer(roleBasedAuthorizer, authorizationInformer.ClusterPolicies().Lister(), messageMaker)
+	scopeLimitedAuthorizer := scope.NewAuthorizer(roleBasedAuthorizer, clusterRoleGetter, messageMaker)
 
 	authorizer := authorizerunion.New(
 		authorizerfactory.NewPrivilegedGroups(user.SystemPrivilegedGroup), // authorizes system:masters to do anything, just like upstream

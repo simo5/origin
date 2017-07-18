@@ -8,22 +8,22 @@ import (
 	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/authentication/user"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+	rbaclisters "k8s.io/kubernetes/pkg/client/listers/rbac/internalversion"
 	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/authorizer/scope"
-	authorizationlister "github.com/openshift/origin/pkg/authorization/generated/listers/authorization/internalversion"
 	"github.com/openshift/origin/pkg/authorization/registry/subjectrulesreview"
 	"github.com/openshift/origin/pkg/authorization/rulevalidation"
 )
 
 type REST struct {
-	ruleResolver        rbacregistryvalidation.AuthorizationRuleResolver
-	clusterPolicyGetter authorizationlister.ClusterPolicyLister
+	ruleResolver      rbacregistryvalidation.AuthorizationRuleResolver
+	clusterRoleGetter rbaclisters.ClusterRoleLister
 }
 
-func NewREST(ruleResolver rbacregistryvalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) *REST {
-	return &REST{ruleResolver: ruleResolver, clusterPolicyGetter: clusterPolicyGetter}
+func NewREST(ruleResolver rbacregistryvalidation.AuthorizationRuleResolver, clusterRoleGetter rbaclisters.ClusterRoleLister) *REST {
+	return &REST{ruleResolver: ruleResolver, clusterRoleGetter: clusterRoleGetter}
 }
 
 func (r *REST) New() runtime.Object {
@@ -61,7 +61,7 @@ func (r *REST) Create(ctx apirequest.Context, obj runtime.Object) (runtime.Objec
 		userToCheck.Extra[authorizationapi.ScopesKey] = rulesReview.Spec.Scopes
 	}
 
-	rules, errors := subjectrulesreview.GetEffectivePolicyRules(apirequest.WithUser(ctx, userToCheck), r.ruleResolver, r.clusterPolicyGetter)
+	rules, errors := subjectrulesreview.GetEffectivePolicyRules(apirequest.WithUser(ctx, userToCheck), r.ruleResolver, r.clusterRoleGetter)
 
 	ret := &authorizationapi.SelfSubjectRulesReview{
 		Status: authorizationapi.SubjectRulesReviewStatus{
@@ -77,7 +77,7 @@ func (r *REST) Create(ctx apirequest.Context, obj runtime.Object) (runtime.Objec
 }
 
 func (r *REST) filterRulesByScopes(rules []authorizationapi.PolicyRule, scopes []string, namespace string) ([]authorizationapi.PolicyRule, error) {
-	rbacScopeRules, err := scope.ScopesToRules(scopes, namespace, r.clusterPolicyGetter)
+	rbacScopeRules, err := scope.ScopesToRules(scopes, namespace, r.clusterRoleGetter)
 	if err != nil {
 		return nil, err
 	}

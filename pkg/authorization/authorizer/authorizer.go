@@ -20,12 +20,12 @@ type openshiftSubjectLocator struct {
 	delegate authorizerrbac.SubjectLocator
 }
 
-func NewAuthorizer(kubeauthorizer kauthorizer.Authorizer, forbiddenMessageMaker ForbiddenMessageMaker) authorizer.Authorizer {
-	return &openshiftAuthorizer{delegate: kubeauthorizer, forbiddenMessageMaker: forbiddenMessageMaker}
+func NewAuthorizer(delegate kauthorizer.Authorizer, forbiddenMessageMaker ForbiddenMessageMaker) authorizer.Authorizer {
+	return &openshiftAuthorizer{delegate: delegate, forbiddenMessageMaker: forbiddenMessageMaker}
 }
 
-func NewSubjectLocator(kubeSubjectLocator authorizerrbac.SubjectLocator) SubjectLocator {
-	return &openshiftSubjectLocator{delegate: kubeSubjectLocator}
+func NewSubjectLocator(delegate authorizerrbac.SubjectLocator) SubjectLocator {
+	return &openshiftSubjectLocator{delegate: delegate}
 }
 
 func (a *openshiftAuthorizer) Authorize(attributes authorizer.Attributes) (bool, string, error) {
