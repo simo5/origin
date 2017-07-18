@@ -28,7 +28,6 @@ import (
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 	"k8s.io/kubernetes/pkg/apis/rbac"
-	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 )
 
 type RequestToRuleMapper interface {
@@ -121,13 +120,10 @@ func (r *RBACAuthorizer) Authorize(requestAttributes authorizer.Attributes) (boo
 	return false, reason, nil
 }
 
-func New(roles rbacregistryvalidation.RoleGetter, roleBindings rbacregistryvalidation.RoleBindingLister, clusterRoles rbacregistryvalidation.ClusterRoleGetter, clusterRoleBindings rbacregistryvalidation.ClusterRoleBindingLister) *RBACAuthorizer {
-	authorizer := &RBACAuthorizer{
-		authorizationRuleResolver: rbacregistryvalidation.NewDefaultRuleResolver(
-			roles, roleBindings, clusterRoles, clusterRoleBindings,
-		),
+func New(ruleResolver RequestToRuleMapper) *RBACAuthorizer {
+	return &RBACAuthorizer{
+		authorizationRuleResolver: ruleResolver,
 	}
-	return authorizer
 }
 
 func RulesAllow(requestAttributes authorizer.Attributes, rules ...rbac.PolicyRule) bool {
