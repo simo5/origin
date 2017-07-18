@@ -64,7 +64,6 @@ import (
 	"github.com/openshift/origin/pkg/authorization/authorizer/scope"
 	authorizationinformer "github.com/openshift/origin/pkg/authorization/generated/informers/internalversion"
 	authorizationinternalinformer "github.com/openshift/origin/pkg/authorization/generated/informers/internalversion/authorization/internalversion"
-	"github.com/openshift/origin/pkg/authorization/rulevalidation"
 	buildinformer "github.com/openshift/origin/pkg/build/generated/informers/internalversion"
 	osclient "github.com/openshift/origin/pkg/client"
 	oadmission "github.com/openshift/origin/pkg/cmd/server/admission"
@@ -264,23 +263,20 @@ func BuildMasterConfig(options configapi.MasterConfig, informers InformerAccess)
 		informers.GetImageInformers().Image().InternalVersion().ImageStreams(),
 		privilegedLoopbackOpenShiftClient,
 		privilegedLoopbackKubeClientsetExternal)
-	ruleResolver := kauthorizerconfig.NewRBACRuleResolver(
+	ruleResolver, kubeSubjectLocator := kauthorizerconfig.NewRBACAuthorization(
 		informers.GetInternalKubeInformers().Rbac().InternalVersion().Roles().Lister(),
 		informers.GetInternalKubeInformers().Rbac().InternalVersion().RoleBindings().Lister(),
 		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoles().Lister(),
 		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoleBindings().Lister(),
-	)
-	bindingResolver := rulevalidation.NewDefaultRoleBindingResolver(
-		informers.GetInternalKubeInformers().Rbac().InternalVersion().RoleBindings().Lister(),
-		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoleBindings().Lister(),
+		"", // TODO should be pass something here ??
 	)
 	rbacAuthorizer := rbacauthorizer.New(ruleResolver)
 	authorizer, subjectLocator := newAuthorizer(
 		rbacAuthorizer,
-		ruleResolver,
-		bindingResolver,
+		kubeSubjectLocator,
 		informers.GetAuthorizationInformers().Authorization().InternalVersion(),
-		options.ProjectConfig.ProjectRequestMessage)
+		options.ProjectConfig.ProjectRequestMessage,
+	)
 
 	pluginInitializer := oadmission.PluginInitializer{
 		OpenshiftClient:              privilegedLoopbackOpenShiftClient,
@@ -1019,10 +1015,10 @@ func newProjectAuthorizationCache(subjectLocator authorizer.SubjectLocator, kube
 	)
 }
 
-func newAuthorizer(kubeauthorizer kauthorizer.Authorizer, roleToRuleMapper rbacauthorizer.RoleToRuleMapper, bindingResolver rulevalidation.AuthorizationRoleBindingResolver, authorizationInformer authorizationinternalinformer.Interface, projectRequestDenyMessage string) (kauthorizer.Authorizer, authorizer.SubjectLocator) {
+func newAuthorizer(kubeAuthorizer kauthorizer.Authorizer, kubeSubjectLocator rbacauthorizer.SubjectLocator, authorizationInformer authorizationinternalinformer.Interface, projectRequestDenyMessage string) (kauthorizer.Authorizer, authorizer.SubjectLocator) {
 	messageMaker := authorizer.NewForbiddenMessageResolver(projectRequestDenyMessage)
-	roleBasedAuthorizer := authorizer.NewAuthorizer(kubeauthorizer, messageMaker)
-	subjectLocator := authorizer.NewSubjectLocator(roleToRuleMapper, bindingResolver)
+	roleBasedAuthorizer := authorizer.NewAuthorizer(kubeAuthorizer, messageMaker)
+	subjectLocator := authorizer.NewSubjectLocator(kubeSubjectLocator)
 	scopeLimitedAuthorizer := scope.NewAuthorizer(roleBasedAuthorizer, authorizationInformer.ClusterPolicies().Lister(), messageMaker)
 
 	authorizer := authorizerunion.New(
