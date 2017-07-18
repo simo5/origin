@@ -32,6 +32,7 @@ import (
 	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
 	rbaclisters "k8s.io/kubernetes/pkg/client/listers/rbac/internalversion"
 	"k8s.io/kubernetes/pkg/kubeapiserver/authorizer/modes"
+	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 	"k8s.io/kubernetes/plugin/pkg/auth/authorizer/node"
 	"k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
 	"k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac/bootstrappolicy"
@@ -89,6 +90,21 @@ func (l *clusterRoleBindingLister) ListClusterRoleBindings() ([]*rbacapi.Cluster
 	return l.lister.List(labels.Everything())
 }
 
+func NewRBACAuthorization(
+	roleLister rbaclisters.RoleLister,
+	bindingLister rbaclisters.RoleBindingLister,
+	clusterRoleLister rbaclisters.ClusterRoleLister,
+	clusterBindingLister rbaclisters.ClusterRoleBindingLister,
+	superUser string,
+) (*rbacregistryvalidation.DefaultRuleResolver, *rbac.SubjectAccessEvaluator) {
+	roles := &roleGetter{roleLister}
+	roleBindings := &roleBindingLister{bindingLister}
+	clusterRoles := &clusterRoleGetter{clusterRoleLister}
+	clusterRoleBindings := &clusterRoleBindingLister{clusterBindingLister}
+	ruleResolver := rbacregistryvalidation.NewDefaultRuleResolver(roles, roleBindings, clusterRoles, clusterRoleBindings)
+	return ruleResolver, rbac.NewSubjectAccessEvaluator(roleBindings, clusterRoleBindings, ruleResolver, superUser)
+}
+
 // New returns the right sort of union of multiple authorizer.Authorizer objects
 // based on the authorizationMode or an error.
 func (config AuthorizationConfig) New() (authorizer.Authorizer, error) {
@@ -143,12 +159,14 @@ func (config AuthorizationConfig) New() (authorizer.Authorizer, error) {
 			}
 			authorizers = append(authorizers, webhookAuthorizer)
 		case modes.ModeRBAC:
-			rbacAuthorizer := rbac.New(
-				&roleGetter{config.InformerFactory.Rbac().InternalVersion().Roles().Lister()},
-				&roleBindingLister{config.InformerFactory.Rbac().InternalVersion().RoleBindings().Lister()},
-				&clusterRoleGetter{config.InformerFactory.Rbac().InternalVersion().ClusterRoles().Lister()},
-				&clusterRoleBindingLister{config.InformerFactory.Rbac().InternalVersion().ClusterRoleBindings().Lister()},
+			ruleResolver, _ := NewRBACAuthorization(
+				config.InformerFactory.Rbac().InternalVersion().Roles().Lister(),
+				config.InformerFactory.Rbac().InternalVersion().RoleBindings().Lister(),
+				config.InformerFactory.Rbac().InternalVersion().ClusterRoles().Lister(),
+				config.InformerFactory.Rbac().InternalVersion().ClusterRoleBindings().Lister(),
+				"",
 			)
+			rbacAuthorizer := rbac.New(ruleResolver)
 			authorizers = append(authorizers, rbacAuthorizer)
 		default:
 			return nil, fmt.Errorf("Unknown authorization mode %s specified", authorizationMode)
