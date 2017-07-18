@@ -312,7 +312,7 @@ func TestAuthorizationResolution(t *testing.T) {
 	// the policy cache taking time to react
 	if err := wait.Poll(time.Second, 2*time.Minute, func() (bool, error) {
 		err := addValerie.AddRole()
-		if kapierror.IsNotFound(err) {
+		if err == nil || kapierror.IsNotFound(err) { // TODO what does this mean?
 			return true, nil
 		}
 		return false, err
@@ -324,7 +324,7 @@ func TestAuthorizationResolution(t *testing.T) {
 	roleWithGroup.Name = "with-group"
 	roleWithGroup.Rules = append(roleWithGroup.Rules, authorizationapi.PolicyRule{
 		Verbs:     sets.NewString("list"),
-		Resources: sets.NewString("resourcegroup:builds"),
+		Resources: sets.NewString("builds"), // TODO we may need to track these down
 	})
 	if _, err := clusterAdminClient.ClusterRoles().Create(roleWithGroup); err != nil {
 		t.Fatalf("unexpected error: %v", err)
