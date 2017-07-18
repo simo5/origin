@@ -44,13 +44,16 @@ import (
 	kcontroller "k8s.io/kubernetes/pkg/controller"
 	sacontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
 	kadmission "k8s.io/kubernetes/pkg/kubeapiserver/admission"
+	kauthorizerconfig "k8s.io/kubernetes/pkg/kubeapiserver/authorizer"
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
+	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 	scheduleroptions "k8s.io/kubernetes/plugin/cmd/kube-scheduler/app/options"
 	"k8s.io/kubernetes/plugin/pkg/admission/namespace/lifecycle"
 	saadmit "k8s.io/kubernetes/plugin/pkg/admission/serviceaccount"
 	serviceaccountadmission "k8s.io/kubernetes/plugin/pkg/admission/serviceaccount"
 	storageclassdefaultadmission "k8s.io/kubernetes/plugin/pkg/admission/storageclass/default"
+	rbacauthorizer "k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac"
 	schedulerapi "k8s.io/kubernetes/plugin/pkg/scheduler/api"
 	latestschedulerapi "k8s.io/kubernetes/plugin/pkg/scheduler/api/latest"
 
@@ -110,7 +113,7 @@ type MasterConfig struct {
 	// RESTOptionsGetter provides access to storage and RESTOptions for a particular resource
 	RESTOptionsGetter restoptions.Getter
 
-	RuleResolver   rulevalidation.AuthorizationRuleResolver
+	RuleResolver   rbacregistryvalidation.AuthorizationRuleResolver
 	Authenticator  authenticator.Request
 	Authorizer     kauthorizer.Authorizer
 	SubjectLocator authorizer.SubjectLocator
@@ -261,20 +264,21 @@ func BuildMasterConfig(options configapi.MasterConfig, informers InformerAccess)
 		informers.GetImageInformers().Image().InternalVersion().ImageStreams(),
 		privilegedLoopbackOpenShiftClient,
 		privilegedLoopbackKubeClientsetExternal)
-	ruleResolver := rulevalidation.NewDefaultRuleResolver(
-		informers.GetAuthorizationInformers().Authorization().InternalVersion().Policies().Lister(),
-		informers.GetAuthorizationInformers().Authorization().InternalVersion().PolicyBindings().Lister(),
-		informers.GetAuthorizationInformers().Authorization().InternalVersion().ClusterPolicies().Lister(),
-		informers.GetAuthorizationInformers().Authorization().InternalVersion().ClusterPolicyBindings().Lister(),
-	)
-	ruleRbacResolver := rulevalidation.NewDefaultRbacRuleResolver(
+	ruleResolver := kauthorizerconfig.NewRBACRuleResolver(
 		informers.GetInternalKubeInformers().Rbac().InternalVersion().Roles().Lister(),
 		informers.GetInternalKubeInformers().Rbac().InternalVersion().RoleBindings().Lister(),
 		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoles().Lister(),
 		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoleBindings().Lister(),
 	)
+	bindingResolver := rulevalidation.NewDefaultRoleBindingResolver(
+		informers.GetInternalKubeInformers().Rbac().InternalVersion().RoleBindings().Lister(),
+		informers.GetInternalKubeInformers().Rbac().InternalVersion().ClusterRoleBindings().Lister(),
+	)
+	rbacAuthorizer := rbacauthorizer.New(ruleResolver)
 	authorizer, subjectLocator := newAuthorizer(
-		ruleRbacResolver,
+		rbacAuthorizer,
+		ruleResolver,
+		bindingResolver,
 		informers.GetAuthorizationInformers().Authorization().InternalVersion(),
 		options.ProjectConfig.ProjectRequestMessage)
 
@@ -1015,9 +1019,10 @@ func newProjectAuthorizationCache(subjectLocator authorizer.SubjectLocator, kube
 	)
 }
 
-func newAuthorizer(ruleResolver rulevalidation.AuthorizationRbacRuleResolver, authorizationInformer authorizationinternalinformer.Interface, projectRequestDenyMessage string) (kauthorizer.Authorizer, authorizer.SubjectLocator) {
+func newAuthorizer(kubeauthorizer kauthorizer.Authorizer, roleToRuleMapper rbacauthorizer.RoleToRuleMapper, bindingResolver rulevalidation.AuthorizationRoleBindingResolver, authorizationInformer authorizationinternalinformer.Interface, projectRequestDenyMessage string) (kauthorizer.Authorizer, authorizer.SubjectLocator) {
 	messageMaker := authorizer.NewForbiddenMessageResolver(projectRequestDenyMessage)
-	roleBasedAuthorizer, subjectLocator := authorizer.NewAuthorizer(ruleResolver, messageMaker)
+	roleBasedAuthorizer := authorizer.NewAuthorizer(kubeauthorizer, messageMaker)
+	subjectLocator := authorizer.NewSubjectLocator(roleToRuleMapper, bindingResolver)
 	scopeLimitedAuthorizer := scope.NewAuthorizer(roleBasedAuthorizer, authorizationInformer.ClusterPolicies().Lister(), messageMaker)
 
 	authorizer := authorizerunion.New(

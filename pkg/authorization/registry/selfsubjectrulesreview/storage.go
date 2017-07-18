@@ -8,6 +8,7 @@ import (
 	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/authentication/user"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/authorizer/scope"
@@ -17,11 +18,11 @@ import (
 )
 
 type REST struct {
-	ruleResolver        rulevalidation.AuthorizationRuleResolver
+	ruleResolver        rbacregistryvalidation.AuthorizationRuleResolver
 	clusterPolicyGetter authorizationlister.ClusterPolicyLister
 }
 
-func NewREST(ruleResolver rulevalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) *REST {
+func NewREST(ruleResolver rbacregistryvalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) *REST {
 	return &REST{ruleResolver: ruleResolver, clusterPolicyGetter: clusterPolicyGetter}
 }
 

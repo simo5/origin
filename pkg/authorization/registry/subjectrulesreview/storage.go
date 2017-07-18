@@ -9,6 +9,7 @@ import (
 	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/authentication/user"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+	rbacregistryvalidation "k8s.io/kubernetes/pkg/registry/rbac/validation"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/authorizer/scope"
@@ -17,11 +18,11 @@ import (
 )
 
 type REST struct {
-	ruleResolver        rulevalidation.AuthorizationRuleResolver
+	ruleResolver        rbacregistryvalidation.AuthorizationRuleResolver
 	clusterPolicyGetter authorizationlister.ClusterPolicyLister
 }
 
-func NewREST(ruleResolver rulevalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) *REST {
+func NewREST(ruleResolver rbacregistryvalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) *REST {
 	return &REST{ruleResolver: ruleResolver, clusterPolicyGetter: clusterPolicyGetter}
 }
 
@@ -64,7 +65,7 @@ func (r *REST) Create(ctx apirequest.Context, obj runtime.Object) (runtime.Objec
 	return ret, nil
 }
 
-func GetEffectivePolicyRules(ctx apirequest.Context, ruleResolver rulevalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) ([]authorizationapi.PolicyRule, []error) {
+func GetEffectivePolicyRules(ctx apirequest.Context, ruleResolver rbacregistryvalidation.AuthorizationRuleResolver, clusterPolicyGetter authorizationlister.ClusterPolicyLister) ([]authorizationapi.PolicyRule, []error) {
 	namespace := apirequest.NamespaceValue(ctx)
 	if len(namespace) == 0 {
 		return nil, []error{kapierrors.NewBadRequest(fmt.Sprintf("namespace is required on this type: %v", namespace))}
@@ -80,7 +81,7 @@ func GetEffectivePolicyRules(ctx apirequest.Context, ruleResolver rulevalidation
 	if err != nil {
 		errors = append(errors, err)
 	}
-	for _, rule := range namespaceRules {
+	for _, rule := range authorizationapi.Convert_rbac_PolicyRules_To_authorization_PolicyRules(namespaceRules) { // TODO fix this nonsense
 		rules = append(rules, rulevalidation.BreakdownRule(rule)...)
 	}
 
