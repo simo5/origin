@@ -1710,7 +1710,9 @@ func TestPolicyCache(t *testing.T) {
 			t.Fatalf("unexpected error creating role %q: %v", role.Name, err)
 		}
 		roleBinding := &authorizationapi.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: role.Name},
+			// TODO maybe Convert_authorization_RoleBinding_To_rbac_RoleBinding should be ok with an empty namespace for a local role ref?
+			// TODO Also, we should be able to remove this test all together
+			ObjectMeta: metav1.ObjectMeta{Name: role.Name, Namespace: namespace},
 			Subjects:   []kapi.ObjectReference{{Name: user, Kind: authorizationapi.UserKind}},
 			RoleRef:    kapi.ObjectReference{Name: role.Name, Namespace: namespace}}
 		if _, err := haroldClient.RoleBindings(namespace).Create(roleBinding); err != nil {
