@@ -113,6 +113,9 @@ func (rbs *RoleBindingStorage) Create(ctx apirequest.Context, obj runtime.Object
 
 	clusterObj := obj.(*authorizationapi.RoleBinding)
 	convertedObj, err := convert.RoleBindingToRBAC(clusterObj)
+	if err != nil {
+		return nil, err
+	}
 
 	ret, err := client.Create(convertedObj)
 	if err != nil {
