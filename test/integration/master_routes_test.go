@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/diff"
 	knet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/sets"
 	kapi "k8s.io/kubernetes/pkg/api"
@@ -95,10 +96,10 @@ var expectedIndex = []string{
 	// "/healthz/poststarthook/extensions/third-party-resources",  // Do not enable this controller, we do not support it
 	"/healthz/poststarthook/generic-apiserver-start-informers",
 	"/healthz/poststarthook/kube-apiserver-autoregistration",
+	"/healthz/poststarthook/rbac/bootstrap-openshift-roles",
 	"/healthz/poststarthook/start-apiextensions-controllers",
 	"/healthz/poststarthook/start-apiextensions-informers",
 	"/healthz/poststarthook/start-kube-aggregator-informers",
-	"/healthz/poststarthook/rbac/bootstrap-openshift-roles",
 	"/healthz/ready",
 	"/metrics",
 	"/oapi",
@@ -148,7 +149,7 @@ func TestRootRedirect(t *testing.T) {
 	json.Unmarshal(body, &got)
 	sort.Strings(got.Paths)
 	if !reflect.DeepEqual(got.Paths, expectedIndex) {
-		t.Fatalf("Unexpected index: \ngot=%v,\n\n expected=%v", got, expectedIndex)
+		t.Fatalf("Unexpected index: \ngot=%v,\n\n expected=%v,\n\ndiff=%v", got.Paths, expectedIndex, diff.ObjectDiff(expectedIndex, got.Paths))
 	}
 
 	req, err = http.NewRequest("GET", masterConfig.AssetConfig.MasterPublicURL, nil)
