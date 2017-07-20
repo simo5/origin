@@ -227,9 +227,6 @@ func (o MasterOptions) RunMaster() error {
 		if err := o.CreateCerts(); err != nil {
 			return err
 		}
-		if err := o.CreateBootstrapPolicy(); err != nil {
-			return err
-		}
 	}
 
 	var masterConfig *configapi.MasterConfig
@@ -310,15 +307,6 @@ func (o MasterOptions) RunMaster() error {
 		controllers: o.MasterArgs.StartControllers,
 	}
 	return m.Start()
-}
-
-func (o MasterOptions) CreateBootstrapPolicy() error {
-	writeBootstrapPolicy := admin.CreateBootstrapPolicyFileOptions{
-		File: o.MasterArgs.GetPolicyFile(),
-		OpenShiftSharedResourcesNamespace: bootstrappolicy.DefaultOpenShiftSharedResourcesNamespace,
-	}
-
-	return writeBootstrapPolicy.CreateBootstrapPolicyFile()
 }
 
 func (o MasterOptions) CreateCerts() error {
