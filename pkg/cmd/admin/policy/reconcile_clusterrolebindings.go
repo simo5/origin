@@ -200,7 +200,7 @@ func (o *ReconcileClusterRoleBindingsOptions) ChangedClusterRoleBindings() ([]*a
 
 	rolesToReconcile := sets.NewString(o.RolesToReconcile...)
 	rolesNotFound := sets.NewString(o.RolesToReconcile...)
-	bootstrapClusterRoleBindings := bootstrappolicy.GetBootstrapClusterRoleBindings()
+	bootstrapClusterRoleBindings := bootstrappolicy.InvertOriginClusterRoleBindingsOrDie(bootstrappolicy.GetBootstrapClusterRoleBindings())
 	for i := range bootstrapClusterRoleBindings {
 		expectedClusterRoleBinding := &bootstrapClusterRoleBindings[i]
 		if (len(rolesToReconcile) > 0) && !rolesToReconcile.Has(expectedClusterRoleBinding.RoleRef.Name) {
