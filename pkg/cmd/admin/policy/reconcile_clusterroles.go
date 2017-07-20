@@ -12,6 +12,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/apis/rbac"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
@@ -182,6 +183,26 @@ func (o *ReconcileClusterRolesOptions) RunReconcileClusterRoles(cmd *cobra.Comma
 	return nil
 }
 
+func convertToOriginClusterRolesOrDie(in []rbac.ClusterRole) []authorizationapi.ClusterRole {
+	out := []authorizationapi.ClusterRole{}
+	errs := []error{}
+
+	for i := range in {
+		newRole := &authorizationapi.ClusterRole{}
+		if err := kapi.Scheme.Convert(&in[i], newRole, nil); err != nil {
+			errs = append(errs, fmt.Errorf("error converting %q: %v", in[i].Name, err))
+			continue
+		}
+		out = append(out, *newRole)
+	}
+
+	if len(errs) > 0 {
+		panic(kerrors.NewAggregate(errs).Error())
+	}
+
+	return out
+}
+
 // ChangedClusterRoles returns the roles that must be created and/or updated to
 // match the recommended bootstrap policy
 func (o *ReconcileClusterRolesOptions) ChangedClusterRoles() ([]*authorizationapi.ClusterRole, []*authorizationapi.ClusterRole, error) {
@@ -190,7 +211,8 @@ func (o *ReconcileClusterRolesOptions) ChangedClusterRoles() ([]*authorizationap
 
 	rolesToReconcile := sets.NewString(o.RolesToReconcile...)
 	rolesNotFound := sets.NewString(o.RolesToReconcile...)
-	bootstrapClusterRoles := bootstrappolicy.GetBootstrapClusterRoles()
+	//TODO: nuke convert from orbit
+	bootstrapClusterRoles := convertToOriginClusterRolesOrDie(bootstrappolicy.GetBootstrapClusterRoles())
 	for i := range bootstrapClusterRoles {
 		expectedClusterRole := &bootstrapClusterRoles[i]
 		if (len(rolesToReconcile) > 0) && !rolesToReconcile.Has(expectedClusterRole.Name) {
