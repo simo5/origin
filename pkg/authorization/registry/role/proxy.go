@@ -12,7 +12,7 @@ import (
 
 	"github.com/openshift/origin/pkg/auth/client"
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
-	"github.com/openshift/origin/pkg/authorization/util/convert"
+	"github.com/openshift/origin/pkg/authorization/registry/util"
 )
 
 func getImpersonatingClient(ctx apirequest.Context, rbacclient internalversion.RbacInterface) (internalversion.RoleInterface, error) {
@@ -60,7 +60,7 @@ func (rs *RoleStorage) List(ctx apirequest.Context, options *metainternal.ListOp
 
 	ret := &authorizationapi.RoleList{}
 	for _, curr := range roles.Items {
-		role, err := convert.RoleFromRBAC(&curr)
+		role, err := util.RoleFromRBAC(&curr)
 		if err != nil {
 			return nil, err
 		}
@@ -83,7 +83,7 @@ func (rs *RoleStorage) Get(ctx apirequest.Context, name string, options *metav1.
 		return nil, err
 	}
 
-	role, err := convert.RoleFromRBAC(ret)
+	role, err := util.RoleFromRBAC(ret)
 	if err != nil {
 		return nil, err
 	}
@@ -110,14 +110,14 @@ func (rs *RoleStorage) Create(ctx apirequest.Context, obj runtime.Object, _ bool
 	}
 
 	clusterObj := obj.(*authorizationapi.Role)
-	convertedObj, err := convert.RoleToRBAC(clusterObj)
+	convertedObj, err := util.RoleToRBAC(clusterObj)
 
 	ret, err := client.Create(convertedObj)
 	if err != nil {
 		return nil, err
 	}
 
-	role, err := convert.RoleFromRBAC(ret)
+	role, err := util.RoleFromRBAC(ret)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (rs *RoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.
 		return nil, false, err
 	}
 
-	oldRole, err := convert.RoleFromRBAC(old)
+	oldRole, err := util.RoleFromRBAC(old)
 	if err != nil {
 		return nil, false, err
 	}
@@ -148,7 +148,7 @@ func (rs *RoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.
 		return nil, false, err
 	}
 
-	updatedRole, err := convert.RoleToRBAC(obj.(*authorizationapi.Role))
+	updatedRole, err := util.RoleToRBAC(obj.(*authorizationapi.Role))
 	if err != nil {
 		return nil, false, err
 	}
@@ -158,7 +158,7 @@ func (rs *RoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.
 		return nil, false, err
 	}
 
-	role, err := convert.RoleFromRBAC(ret)
+	role, err := util.RoleFromRBAC(ret)
 	if err != nil {
 		return nil, false, err
 	}
