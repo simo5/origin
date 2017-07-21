@@ -5,41 +5,34 @@ import (
 	metainternal "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
+	restclient "k8s.io/client-go/rest"
+	rbacinternalversion "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
 
-	"github.com/openshift/origin/pkg/auth/client"
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/registry/util"
 )
 
-func getImpersonatingClient(ctx apirequest.Context, rbacclient internalversion.RbacInterface) (internalversion.ClusterRoleInterface, error) {
-	restclient, err := client.NewImpersonatingRESTClient(ctx, rbacclient.RESTClient())
-	if err != nil {
-		return nil, err
-	}
-	return internalversion.New(restclient).ClusterRoles(), nil
+type REST struct {
+	client   restclient.Interface
+	resource schema.GroupResource
 }
 
-type ClusterRoleStorage struct {
-	client internalversion.RbacInterface
+func NewREST(client restclient.Interface) *REST {
+	return &REST{client: client, resource: authorizationapi.Resource("clusterrole")}
 }
 
-func NewREST(rbacclient internalversion.RbacInterface) *ClusterRoleStorage {
-	return &ClusterRoleStorage{rbacclient}
-}
-
-func (crs *ClusterRoleStorage) New() runtime.Object {
+func (s *REST) New() runtime.Object {
 	return &authorizationapi.ClusterRole{}
 }
-func (crs *ClusterRoleStorage) NewList() runtime.Object {
+func (s *REST) NewList() runtime.Object {
 	return &authorizationapi.ClusterRoleList{}
 }
 
-func (crs *ClusterRoleStorage) List(ctx apirequest.Context, options *metainternal.ListOptions) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, crs.client)
+func (s *REST) List(ctx apirequest.Context, options *metainternal.ListOptions) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +43,7 @@ func (crs *ClusterRoleStorage) List(ctx apirequest.Context, options *metainterna
 	}
 
 	roles, err := client.List(optv1)
-	if roles == nil {
+	if err != nil {
 		return nil, err
 	}
 
@@ -62,11 +55,11 @@ func (crs *ClusterRoleStorage) List(ctx apirequest.Context, options *metainterna
 		}
 		ret.Items = append(ret.Items, *role)
 	}
-	return ret, err
+	return ret, nil
 }
 
-func (crs *ClusterRoleStorage) Get(ctx apirequest.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, crs.client)
+func (s *REST) Get(ctx apirequest.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +67,7 @@ func (crs *ClusterRoleStorage) Get(ctx apirequest.Context, name string, options 
 	ret, err := client.Get(name, *options)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = apierrors.NewNotFound(authorizationapi.Resource("clusterrole"), name)
+			return nil, apierrors.NewNotFound(s.resource, name)
 		}
 		return nil, err
 	}
@@ -83,11 +76,11 @@ func (crs *ClusterRoleStorage) Get(ctx apirequest.Context, name string, options 
 	if err != nil {
 		return nil, err
 	}
-	return role, err
+	return role, nil
 }
 
-func (crs *ClusterRoleStorage) Delete(ctx apirequest.Context, name string, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
-	client, err := getImpersonatingClient(ctx, crs.client)
+func (s *REST) Delete(ctx apirequest.Context, name string, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -99,14 +92,16 @@ func (crs *ClusterRoleStorage) Delete(ctx apirequest.Context, name string, optio
 	return &metav1.Status{Status: metav1.StatusSuccess}, true, nil
 }
 
-func (crs *ClusterRoleStorage) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, crs.client)
+func (s *REST) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	clusterObj := obj.(*authorizationapi.ClusterRole)
-	convertedObj, err := util.ClusterRoleToRBAC(clusterObj)
+	convertedObj, err := util.ClusterRoleToRBAC(obj.(*authorizationapi.ClusterRole))
+	if err != nil {
+		return nil, err
+	}
 
 	ret, err := client.Create(convertedObj)
 	if err != nil {
@@ -117,11 +112,11 @@ func (crs *ClusterRoleStorage) Create(ctx apirequest.Context, obj runtime.Object
 	if err != nil {
 		return nil, err
 	}
-	return role, err
+	return role, nil
 }
 
-func (crs *ClusterRoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
-	client, err := getImpersonatingClient(ctx, crs.client)
+func (s *REST) Update(ctx apirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -129,7 +124,7 @@ func (crs *ClusterRoleStorage) Update(ctx apirequest.Context, name string, objIn
 	old, err := client.Get(name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = apierrors.NewNotFound(authorizationapi.Resource("clusterrole"), name)
+			return nil, false, apierrors.NewNotFound(s.resource, name)
 		}
 		return nil, false, err
 	}
@@ -161,18 +156,10 @@ func (crs *ClusterRoleStorage) Update(ctx apirequest.Context, name string, objIn
 	return role, false, err
 }
 
-func (crs *ClusterRoleStorage) CreateClusterRoleWithEscalation(ctx apirequest.Context, obj *authorizationapi.ClusterRole) (*authorizationapi.ClusterRole, error) {
-	ret, err := crs.Create(ctx, obj, false)
+func (s *REST) getImpersonatingClient(ctx apirequest.Context) (rbacinternalversion.ClusterRoleInterface, error) {
+	rbacClient, err := util.NewImpersonatingRBACFromContext(ctx, s.client)
 	if err != nil {
 		return nil, err
 	}
-	return ret.(*authorizationapi.ClusterRole), err
-}
-
-func (crs *ClusterRoleStorage) UpdateClusterRoleWithEscalation(ctx apirequest.Context, obj *authorizationapi.ClusterRole) (*authorizationapi.ClusterRole, bool, error) {
-	ret, ignored, err := crs.Update(ctx, obj.Name, rest.DefaultUpdatedObjectInfo(obj, api.Scheme))
-	if err != nil {
-		return nil, false, err
-	}
-	return ret.(*authorizationapi.ClusterRole), ignored, err
+	return rbacClient.ClusterRoles(), nil
 }

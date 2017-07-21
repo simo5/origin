@@ -5,45 +5,34 @@ import (
 	metainternal "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
+	restclient "k8s.io/client-go/rest"
+	rbacinternalversion "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
 
-	"github.com/openshift/origin/pkg/auth/client"
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/registry/util"
 )
 
-func getImpersonatingClient(ctx apirequest.Context, rbacclient internalversion.RbacInterface) (internalversion.RoleInterface, error) {
-	namespace, ok := apirequest.NamespaceFrom(ctx)
-	if !ok {
-		return nil, apierrors.NewBadRequest("namespace parameter required.")
-	}
-	restclient, err := client.NewImpersonatingRESTClient(ctx, rbacclient.RESTClient())
-	if err != nil {
-		return nil, err
-	}
-	return internalversion.New(restclient).Roles(namespace), nil
+type REST struct {
+	client   restclient.Interface
+	resource schema.GroupResource
 }
 
-type RoleStorage struct {
-	client internalversion.RbacInterface
+func NewREST(client restclient.Interface) *REST {
+	return &REST{client: client, resource: authorizationapi.Resource("role")}
 }
 
-func NewREST(rbacclient internalversion.RbacInterface) *RoleStorage {
-	return &RoleStorage{rbacclient}
-}
-
-func (rs *RoleStorage) New() runtime.Object {
+func (s *REST) New() runtime.Object {
 	return &authorizationapi.Role{}
 }
-func (rs *RoleStorage) NewList() runtime.Object {
+func (s *REST) NewList() runtime.Object {
 	return &authorizationapi.RoleList{}
 }
 
-func (rs *RoleStorage) List(ctx apirequest.Context, options *metainternal.ListOptions) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, rs.client)
+func (s *REST) List(ctx apirequest.Context, options *metainternal.ListOptions) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -66,11 +55,11 @@ func (rs *RoleStorage) List(ctx apirequest.Context, options *metainternal.ListOp
 		}
 		ret.Items = append(ret.Items, *role)
 	}
-	return ret, err
+	return ret, nil
 }
 
-func (rs *RoleStorage) Get(ctx apirequest.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, rs.client)
+func (s *REST) Get(ctx apirequest.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +67,7 @@ func (rs *RoleStorage) Get(ctx apirequest.Context, name string, options *metav1.
 	ret, err := client.Get(name, *options)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = apierrors.NewNotFound(authorizationapi.Resource("role"), name)
+			return nil, apierrors.NewNotFound(s.resource, name)
 		}
 		return nil, err
 	}
@@ -87,11 +76,11 @@ func (rs *RoleStorage) Get(ctx apirequest.Context, name string, options *metav1.
 	if err != nil {
 		return nil, err
 	}
-	return role, err
+	return role, nil
 }
 
-func (rs *RoleStorage) Delete(ctx apirequest.Context, name string, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
-	client, err := getImpersonatingClient(ctx, rs.client)
+func (s *REST) Delete(ctx apirequest.Context, name string, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -103,14 +92,16 @@ func (rs *RoleStorage) Delete(ctx apirequest.Context, name string, options *meta
 	return &metav1.Status{Status: metav1.StatusSuccess}, true, nil
 }
 
-func (rs *RoleStorage) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, rs.client)
+func (s *REST) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	clusterObj := obj.(*authorizationapi.Role)
-	convertedObj, err := util.RoleToRBAC(clusterObj)
+	convertedObj, err := util.RoleToRBAC(obj.(*authorizationapi.Role))
+	if err != nil {
+		return nil, err
+	}
 
 	ret, err := client.Create(convertedObj)
 	if err != nil {
@@ -121,11 +112,11 @@ func (rs *RoleStorage) Create(ctx apirequest.Context, obj runtime.Object, _ bool
 	if err != nil {
 		return nil, err
 	}
-	return role, err
+	return role, nil
 }
 
-func (rs *RoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
-	client, err := getImpersonatingClient(ctx, rs.client)
+func (s *REST) Update(ctx apirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -133,7 +124,7 @@ func (rs *RoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.
 	old, err := client.Get(name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = apierrors.NewNotFound(authorizationapi.Resource("role"), name)
+			return nil, false, apierrors.NewNotFound(s.resource, name)
 		}
 		return nil, false, err
 	}
@@ -165,19 +156,14 @@ func (rs *RoleStorage) Update(ctx apirequest.Context, name string, objInfo rest.
 	return role, false, err
 }
 
-// FIXME: Legacy functions, to be removed eventually
-func (rs *RoleStorage) CreateRoleWithEscalation(ctx apirequest.Context, obj *authorizationapi.Role) (*authorizationapi.Role, error) {
-	ret, err := rs.Create(ctx, obj, false)
+func (s *REST) getImpersonatingClient(ctx apirequest.Context) (rbacinternalversion.RoleInterface, error) {
+	namespace, ok := apirequest.NamespaceFrom(ctx)
+	if !ok {
+		return nil, apierrors.NewBadRequest("namespace parameter required")
+	}
+	rbacClient, err := util.NewImpersonatingRBACFromContext(ctx, s.client)
 	if err != nil {
 		return nil, err
 	}
-	return ret.(*authorizationapi.Role), err
-}
-
-func (rs *RoleStorage) UpdateRoleWithEscalation(ctx apirequest.Context, obj *authorizationapi.Role) (*authorizationapi.Role, bool, error) {
-	ret, ignored, err := rs.Update(ctx, obj.Name, rest.DefaultUpdatedObjectInfo(obj, api.Scheme))
-	if err != nil {
-		return nil, false, err
-	}
-	return ret.(*authorizationapi.Role), ignored, err
+	return rbacClient.Roles(namespace), nil
 }
