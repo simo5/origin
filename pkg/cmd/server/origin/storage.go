@@ -17,7 +17,6 @@ import (
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 
 	authzapiv1 "github.com/openshift/origin/pkg/authorization/apis/authorization/v1"
-	"github.com/openshift/origin/pkg/authorization/util"
 	buildapiv1 "github.com/openshift/origin/pkg/build/apis/build/v1"
 	buildclient "github.com/openshift/origin/pkg/build/client"
 	buildgenerator "github.com/openshift/origin/pkg/build/generator"
@@ -203,11 +202,6 @@ func (c OpenshiftAPIConfig) GetRestStorage() (map[schema.GroupVersion]map[string
 
 	selfSubjectRulesReviewStorage := selfsubjectrulesreview.NewREST(c.RuleResolver, c.KubeInternalInformers.Rbac().InternalVersion().ClusterRoles().Lister())
 	subjectRulesReviewStorage := subjectrulesreview.NewREST(c.RuleResolver, c.KubeInternalInformers.Rbac().InternalVersion().ClusterRoles().Lister())
-
-	authStorage, err := util.GetAuthorizationStorage(c.GenericConfig.RESTOptionsGetter, nil) // TODO delete
-	if err != nil {
-		return nil, fmt.Errorf("error building authorization REST storage: %v", err)
-	}
 
 	subjectAccessReviewStorage := subjectaccessreview.NewREST(c.GenericConfig.Authorizer)
 	subjectAccessReviewRegistry := subjectaccessreview.NewRegistry(subjectAccessReviewStorage)
@@ -428,11 +422,6 @@ func (c OpenshiftAPIConfig) GetRestStorage() (map[schema.GroupVersion]map[string
 		"localResourceAccessReviews": localResourceAccessReviewStorage,
 		"selfSubjectRulesReviews":    selfSubjectRulesReviewStorage,
 		"subjectRulesReviews":        subjectRulesReviewStorage,
-
-		"policies":              authStorage.Policy,
-		"policyBindings":        authStorage.PolicyBinding,
-		"clusterPolicies":       authStorage.ClusterPolicy,
-		"clusterPolicyBindings": authStorage.ClusterPolicyBinding,
 
 		"roles":               role.NewREST(c.KubeClientInternal.Rbac()),
 		"roleBindings":        rolebinding.NewREST(c.KubeClientInternal.Rbac()),
