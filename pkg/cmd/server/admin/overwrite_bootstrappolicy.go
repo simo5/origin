@@ -1,11 +1,13 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"reflect"
 
+	"github.com/blang/semver"
 	"github.com/spf13/cobra"
 
 	kapierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,6 +44,8 @@ import (
 	"github.com/openshift/origin/pkg/authorization/registry/rolebinding"
 	rolebindingstorage "github.com/openshift/origin/pkg/authorization/registry/rolebinding/policybased"
 	"github.com/openshift/origin/pkg/authorization/rulevalidation"
+	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	"github.com/openshift/origin/pkg/version"
 )
 
 const OverwriteBootstrapPolicyCommandName = "overwrite-policy"
@@ -53,6 +57,8 @@ type OverwriteBootstrapPolicyOptions struct {
 	Force                        bool
 	Out                          io.Writer
 	CreateBootstrapPolicyCommand string
+
+	Factory *clientcmd.Factory
 }
 
 func NewCommandOverwriteBootstrapPolicy(commandName string, fullName string, createBootstrapPolicyCommand string, out io.Writer) *cobra.Command {
@@ -72,6 +78,8 @@ func NewCommandOverwriteBootstrapPolicy(commandName string, fullName string, cre
 			}
 		},
 	}
+
+	options.Factory = clientcmd.New(cmd.PersistentFlags())
 
 	flags := cmd.Flags()
 
@@ -100,6 +108,40 @@ func (o OverwriteBootstrapPolicyOptions) Validate(args []string) error {
 	return nil
 }
 
+func (o OverwriteBootstrapPolicyOptions) GateCommand() error {
+
+	oClient, _, err := o.Factory.Clients()
+	if err != nil {
+		return err
+	}
+
+	ocVersionBody, err := oClient.Get().AbsPath("/version/openshift").Do().Raw()
+	if err != nil {
+		return err
+	}
+	var ocServerInfo version.Info
+	err = json.Unmarshal(ocVersionBody, &ocServerInfo)
+	if err != nil {
+		return err
+	}
+	oVersion := fmt.Sprintf("%v", ocServerInfo)
+	// skip first chracter as Openshift returns a 'v' preceding the actual
+	// version string which semver does not grok
+	semVersion, err := semver.Parse(oVersion[1:])
+	if err != nil {
+		return fmt.Errorf("Failed to parse server version, got %s", oVersion)
+	}
+
+	//FIXME: use the version of the first tag we get here so we cover
+	// development too
+	if semVersion.GTE(semver.MustParse("3.7.0")) {
+		return fmt.Errorf("This command works only with server versions < 3.7, found %s", oVersion)
+	}
+
+	// OK this is a server < 3.7, all good.
+	return nil
+}
+
 func (o OverwriteBootstrapPolicyOptions) OverwriteBootstrapPolicy() error {
 	masterConfig, err := configapilatest.ReadAndResolveMasterConfig(o.MasterConfigFile)
 	if err != nil {
@@ -109,6 +151,10 @@ func (o OverwriteBootstrapPolicyOptions) OverwriteBootstrapPolicy() error {
 	// this brings in etcd server client libraries
 	optsGetter, err := originrest.StorageOptions(*masterConfig)
 	if err != nil {
+		return err
+	}
+
+	if err = o.GateCommand(); err != nil {
 		return err
 	}
 
