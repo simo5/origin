@@ -1,14 +1,11 @@
 package client
 
 import (
-	"errors"
 	"net/http"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/authentication/user"
-	"k8s.io/apiserver/pkg/endpoints/request"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 	kclientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
@@ -26,7 +23,7 @@ type impersonatingRoundTripper struct {
 
 // NewImpersonatingRoundTripper will add headers to impersonate a user, including user, groups, and scopes
 func NewImpersonatingRoundTripper(user user.Info, delegate http.RoundTripper) http.RoundTripper {
-	return &impersonatingRoundTripper{user, delegate}
+	return &impersonatingRoundTripper{user: user, delegate: delegate}
 }
 
 func (rt *impersonatingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -66,69 +63,50 @@ func NewImpersonatingKubernetesClientset(user user.Info, config restclient.Confi
 	return kclientset.NewForConfig(&impersonatingConfig)
 }
 
-// Implements a RESTClient interface to create requests and set impersonating
-// user headers
-type ImpersonatingRESTClient struct {
-	restClient      restclient.Interface
-	impersonateUser user.Info
+// impersonatingRESTClient sets impersonating user, groups, and scopes headers per request
+type impersonatingRESTClient struct {
+	user     user.Info
+	delegate restclient.Interface
 }
 
-func NewImpersonatingRESTClient(ctx request.Context, client restclient.Interface) (*ImpersonatingRESTClient, error) {
-	user, ok := request.UserFrom(ctx)
-	if !ok {
-		return nil, apierrors.NewInternalError(errors.New("missing user on request"))
-	}
-
-	return &ImpersonatingRESTClient{
-		restClient:      client,
-		impersonateUser: user,
-	}, nil
+func NewImpersonatingRESTClient(user user.Info, client restclient.Interface) restclient.Interface {
+	return &impersonatingRESTClient{user: user, delegate: client}
 }
 
-// GetRateLimiter returns rate limier for a given client, or nil if it's called on a nil client
-func (c ImpersonatingRESTClient) GetRateLimiter() flowcontrol.RateLimiter {
-	return c.restClient.GetRateLimiter()
-}
-
-// Here is where we do the Impersonation by setting the proper headers
-func (c ImpersonatingRESTClient) Verb(verb string) *restclient.Request {
-	req := c.restClient.Verb(verb)
+// Verb does the impersonation per request by setting the proper headers
+func (c impersonatingRESTClient) Verb(verb string) *restclient.Request {
+	req := c.delegate.Verb(verb)
 	// SetHeader creates the headers struct if nil
-	req.SetHeader(authenticationapi.ImpersonateUserHeader,
-		c.impersonateUser.GetName())
-	req.SetHeaderValues(authenticationapi.ImpersonateGroupHeader,
-		c.impersonateUser.GetGroups())
-	req.SetHeaderValues(authenticationapi.ImpersonateUserScopeHeader,
-		c.impersonateUser.GetExtra()[authorizationapi.ScopesKey])
+	req.SetHeader(authenticationapi.ImpersonateUserHeader, c.user.GetName())
+	req.SetHeaderValues(authenticationapi.ImpersonateGroupHeader, c.user.GetGroups())
+	req.SetHeaderValues(authenticationapi.ImpersonateUserScopeHeader, c.user.GetExtra()[authorizationapi.ScopesKey])
 	return req
 }
 
-// Post begins a POST request. Short for c.Verb("POST").
-func (c ImpersonatingRESTClient) Post() *restclient.Request {
+func (c impersonatingRESTClient) Post() *restclient.Request {
 	return c.Verb("POST")
 }
 
-// Put begins a PUT request. Short for c.Verb("PUT").
-func (c ImpersonatingRESTClient) Put() *restclient.Request {
+func (c impersonatingRESTClient) Put() *restclient.Request {
 	return c.Verb("PUT")
 }
 
-// Patch begins a PATCH request. Short for c.Verb("Patch").
-func (c ImpersonatingRESTClient) Patch(pt types.PatchType) *restclient.Request {
+func (c impersonatingRESTClient) Patch(pt types.PatchType) *restclient.Request {
 	return c.Verb("PATCH").SetHeader("Content-Type", string(pt))
 }
 
-// Get begins a GET request. Short for c.Verb("GET").
-func (c ImpersonatingRESTClient) Get() *restclient.Request {
+func (c impersonatingRESTClient) Get() *restclient.Request {
 	return c.Verb("GET")
 }
 
-// Delete begins a DELETE request. Short for c.Verb("DELETE").
-func (c ImpersonatingRESTClient) Delete() *restclient.Request {
+func (c impersonatingRESTClient) Delete() *restclient.Request {
 	return c.Verb("DELETE")
 }
 
-// APIVersion returns the APIVersion this RESTClient is expected to use.
-func (c ImpersonatingRESTClient) APIVersion() schema.GroupVersion {
-	return c.restClient.APIVersion()
+func (c impersonatingRESTClient) APIVersion() schema.GroupVersion {
+	return c.delegate.APIVersion()
+}
+
+func (c impersonatingRESTClient) GetRateLimiter() flowcontrol.RateLimiter {
+	return c.delegate.GetRateLimiter()
 }

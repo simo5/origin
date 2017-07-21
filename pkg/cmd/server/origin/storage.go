@@ -423,10 +423,10 @@ func (c OpenshiftAPIConfig) GetRestStorage() (map[schema.GroupVersion]map[string
 		"selfSubjectRulesReviews":    selfSubjectRulesReviewStorage,
 		"subjectRulesReviews":        subjectRulesReviewStorage,
 
-		"roles":               role.NewREST(c.KubeClientInternal.Rbac()),
-		"roleBindings":        rolebinding.NewREST(c.KubeClientInternal.Rbac()),
-		"clusterRoles":        clusterrole.NewREST(c.KubeClientInternal.Rbac()),
-		"clusterRoleBindings": clusterrolebinding.NewREST(c.KubeClientInternal.Rbac()),
+		"roles":               role.NewREST(c.KubeClientInternal.Rbac().RESTClient()),
+		"roleBindings":        rolebinding.NewREST(c.KubeClientInternal.Rbac().RESTClient()),
+		"clusterRoles":        clusterrole.NewREST(c.KubeClientInternal.Rbac().RESTClient()),
+		"clusterRoleBindings": clusterrolebinding.NewREST(c.KubeClientInternal.Rbac().RESTClient()),
 
 		"roleBindingRestrictions": roleBindingRestrictionStorage,
 	}

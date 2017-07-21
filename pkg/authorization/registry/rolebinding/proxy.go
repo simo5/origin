@@ -5,47 +5,34 @@ import (
 	metainternal "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
+	restclient "k8s.io/client-go/rest"
+	rbacinternalversion "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/rbac/internalversion"
 
-	"github.com/openshift/origin/pkg/auth/client"
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	"github.com/openshift/origin/pkg/authorization/registry/util"
 )
 
-func getImpersonatingClient(ctx apirequest.Context, rbacclient internalversion.RbacInterface) (internalversion.RoleBindingInterface, error) {
-	namespace, ok := apirequest.NamespaceFrom(ctx)
-	if !ok {
-		return nil, apierrors.NewBadRequest("namespace parameter required.")
-	}
-
-	restclient, err := client.NewImpersonatingRESTClient(ctx, rbacclient.RESTClient())
-	if err != nil {
-		return nil, err
-	}
-
-	return internalversion.New(restclient).RoleBindings(namespace), nil
+type REST struct {
+	client   restclient.Interface
+	resource schema.GroupResource
 }
 
-type RoleBindingStorage struct {
-	client internalversion.RbacInterface
+func NewREST(client restclient.Interface) *REST {
+	return &REST{client: client, resource: authorizationapi.Resource("rolebinding")}
 }
 
-func NewREST(rbacclient internalversion.RbacInterface) *RoleBindingStorage {
-	return &RoleBindingStorage{rbacclient}
-}
-
-func (rbs *RoleBindingStorage) New() runtime.Object {
+func (s *REST) New() runtime.Object {
 	return &authorizationapi.RoleBinding{}
 }
-func (rbs *RoleBindingStorage) NewList() runtime.Object {
+func (s *REST) NewList() runtime.Object {
 	return &authorizationapi.RoleBindingList{}
 }
 
-func (rbs *RoleBindingStorage) List(ctx apirequest.Context, options *metainternal.ListOptions) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, rbs.client)
+func (s *REST) List(ctx apirequest.Context, options *metainternal.ListOptions) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -55,24 +42,24 @@ func (rbs *RoleBindingStorage) List(ctx apirequest.Context, options *metainterna
 		return nil, err
 	}
 
-	roles, err := client.List(optv1)
-	if roles == nil {
+	bindings, err := client.List(optv1)
+	if err != nil {
 		return nil, err
 	}
 
 	ret := &authorizationapi.RoleBindingList{}
-	for _, curr := range roles.Items {
+	for _, curr := range bindings.Items {
 		role, err := util.RoleBindingFromRBAC(&curr)
 		if err != nil {
 			return nil, err
 		}
 		ret.Items = append(ret.Items, *role)
 	}
-	return ret, err
+	return ret, nil
 }
 
-func (rbs *RoleBindingStorage) Get(ctx apirequest.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, rbs.client)
+func (s *REST) Get(ctx apirequest.Context, name string, options *metav1.GetOptions) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -80,20 +67,20 @@ func (rbs *RoleBindingStorage) Get(ctx apirequest.Context, name string, options 
 	ret, err := client.Get(name, *options)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = apierrors.NewNotFound(authorizationapi.Resource("rolebinding"), name)
+			return nil, apierrors.NewNotFound(s.resource, name)
 		}
 		return nil, err
 	}
 
-	role, err := util.RoleBindingFromRBAC(ret)
+	binding, err := util.RoleBindingFromRBAC(ret)
 	if err != nil {
 		return nil, err
 	}
-	return role, err
+	return binding, nil
 }
 
-func (rbs *RoleBindingStorage) Delete(ctx apirequest.Context, name string, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
-	client, err := getImpersonatingClient(ctx, rbs.client)
+func (s *REST) Delete(ctx apirequest.Context, name string, options *metav1.DeleteOptions) (runtime.Object, bool, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -105,14 +92,13 @@ func (rbs *RoleBindingStorage) Delete(ctx apirequest.Context, name string, optio
 	return &metav1.Status{Status: metav1.StatusSuccess}, true, nil
 }
 
-func (rbs *RoleBindingStorage) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runtime.Object, error) {
-	client, err := getImpersonatingClient(ctx, rbs.client)
+func (s *REST) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runtime.Object, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	clusterObj := obj.(*authorizationapi.RoleBinding)
-	convertedObj, err := util.RoleBindingToRBAC(clusterObj)
+	convertedObj, err := util.RoleBindingToRBAC(obj.(*authorizationapi.RoleBinding))
 	if err != nil {
 		return nil, err
 	}
@@ -122,15 +108,15 @@ func (rbs *RoleBindingStorage) Create(ctx apirequest.Context, obj runtime.Object
 		return nil, err
 	}
 
-	role, err := util.RoleBindingFromRBAC(ret)
+	binding, err := util.RoleBindingFromRBAC(ret)
 	if err != nil {
 		return nil, err
 	}
-	return role, err
+	return binding, nil
 }
 
-func (rbs *RoleBindingStorage) Update(ctx apirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
-	client, err := getImpersonatingClient(ctx, rbs.client)
+func (s *REST) Update(ctx apirequest.Context, name string, objInfo rest.UpdatedObjectInfo) (runtime.Object, bool, error) {
+	client, err := s.getImpersonatingClient(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -138,7 +124,7 @@ func (rbs *RoleBindingStorage) Update(ctx apirequest.Context, name string, objIn
 	old, err := client.Get(name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			err = apierrors.NewNotFound(authorizationapi.Resource("rolebinding"), name)
+			return nil, false, apierrors.NewNotFound(s.resource, name)
 		}
 		return nil, false, err
 	}
@@ -170,19 +156,14 @@ func (rbs *RoleBindingStorage) Update(ctx apirequest.Context, name string, objIn
 	return role, false, err
 }
 
-// FIXME: Legacy functions, to be removed eventually
-func (rbs *RoleBindingStorage) CreateRoleBindingWithEscalation(ctx apirequest.Context, obj *authorizationapi.RoleBinding) (*authorizationapi.RoleBinding, error) {
-	ret, err := rbs.Create(ctx, obj, false)
+func (s *REST) getImpersonatingClient(ctx apirequest.Context) (rbacinternalversion.RoleBindingInterface, error) {
+	namespace, ok := apirequest.NamespaceFrom(ctx)
+	if !ok {
+		return nil, apierrors.NewBadRequest("namespace parameter required")
+	}
+	rbacClient, err := util.NewImpersonatingRBACFromContext(ctx, s.client)
 	if err != nil {
 		return nil, err
 	}
-	return ret.(*authorizationapi.RoleBinding), err
-}
-
-func (rbs *RoleBindingStorage) UpdateRoleBindingWithEscalation(ctx apirequest.Context, obj *authorizationapi.RoleBinding) (*authorizationapi.RoleBinding, bool, error) {
-	ret, ignored, err := rbs.Update(ctx, obj.Name, rest.DefaultUpdatedObjectInfo(obj, api.Scheme))
-	if err != nil {
-		return nil, false, err
-	}
-	return ret.(*authorizationapi.RoleBinding), ignored, err
+	return rbacClient.RoleBindings(namespace), nil
 }
