@@ -984,32 +984,22 @@ func GetBootstrapClusterRoles() []rbac.ClusterRole {
 
 func GetBootstrapOpenshiftRoleBindings(openshiftNamespace string) []rbac.RoleBinding {
 	return []rbac.RoleBinding{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      OpenshiftSharedResourceViewRoleBindingName,
-				Namespace: openshiftNamespace,
-			},
-			RoleRef: rbac.RoleRef{
-				APIGroup: rbac.GroupName,
-				Kind:     "Role",
-				Name:     OpenshiftSharedResourceViewRoleName,
-			},
-			Subjects: []rbac.Subject{{Kind: rbac.GroupKind, Name: AuthenticatedGroup}},
-		},
+		newOriginRoleBinding(OpenshiftSharedResourceViewRoleBindingName, OpenshiftSharedResourceViewRoleName, openshiftNamespace).
+			Groups(AuthenticatedGroup).
+			BindingOrDie(),
 	}
 }
 
-func newOriginClusterBinding(bindingName string, roleName string) *rbac.ClusterRoleBindingBuilder {
-	return &rbac.ClusterRoleBindingBuilder{
-		ClusterRoleBinding: rbac.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: bindingName},
-			RoleRef: rbac.RoleRef{
-				APIGroup: rbac.GroupName,
-				Kind:     "ClusterRole",
-				Name:     roleName,
-			},
-		},
-	}
+func newOriginRoleBinding(bindingName, roleName, namespace string) *rbac.RoleBindingBuilder {
+	builder := rbac.NewRoleBinding(roleName, namespace)
+	builder.RoleBinding.Name = bindingName
+	return builder
+}
+
+func newOriginClusterBinding(bindingName, roleName string) *rbac.ClusterRoleBindingBuilder {
+	builder := rbac.NewClusterBinding(roleName)
+	builder.ClusterRoleBinding.Name = bindingName
+	return builder
 }
 
 func GetOpenshiftBootstrapClusterRoleBindings() []rbac.ClusterRoleBinding {
@@ -1043,7 +1033,6 @@ func GetOpenshiftBootstrapClusterRoleBindings() []rbac.ClusterRoleBinding {
 		newOriginClusterBinding(OAuthTokenDeleterRoleBindingName, OAuthTokenDeleterRoleName).
 			Groups(AuthenticatedGroup, UnauthenticatedGroup).
 			BindingOrDie(),
-
 		newOriginClusterBinding(StatusCheckerRoleBindingName, StatusCheckerRoleName).
 			Groups(AuthenticatedGroup, UnauthenticatedGroup).
 			BindingOrDie(),
@@ -1064,7 +1053,6 @@ func GetOpenshiftBootstrapClusterRoleBindings() []rbac.ClusterRoleBinding {
 		newOriginClusterBinding(DiscoveryRoleBindingName, DiscoveryRoleName).
 			Groups(AuthenticatedGroup, UnauthenticatedGroup).
 			BindingOrDie(),
-
 		// Allow all build strategies by default.
 		// Cluster admins can remove these role bindings, and the reconcile-cluster-role-bindings command
 		// run during an upgrade won't re-add the "system:authenticated" group
