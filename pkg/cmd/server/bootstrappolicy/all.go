@@ -3,6 +3,7 @@ package bootstrappolicy
 import (
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/util/errors"
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/rbac"
 	rbacbootstrappolicy "k8s.io/kubernetes/plugin/pkg/auth/authorizer/rbac/bootstrappolicy"
@@ -39,7 +40,7 @@ func InvertOriginClusterRolesOrDie(in []rbac.ClusterRole) []authorizationapi.Clu
 	}
 
 	if len(errs) > 0 {
-		panic(errs)
+		panic(errors.NewAggregate(errs).Error())
 	}
 
 	return out
@@ -59,7 +60,7 @@ func InvertOriginClusterRoleBindingsOrDie(in []rbac.ClusterRoleBinding) []author
 	}
 
 	if len(errs) > 0 {
-		panic(errs)
+		panic(errors.NewAggregate(errs).Error())
 	}
 
 	return out

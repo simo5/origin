@@ -991,7 +991,7 @@ func GetBootstrapOpenshiftRoleBindings(openshiftNamespace string) []rbac.RoleBin
 			},
 			RoleRef: rbac.RoleRef{
 				APIGroup: rbac.GroupName,
-				Kind:     "role",
+				Kind:     "Role",
 				Name:     OpenshiftSharedResourceViewRoleName,
 			},
 			Subjects: []rbac.Subject{{Kind: rbac.GroupKind, Name: AuthenticatedGroup}},
@@ -1005,7 +1005,7 @@ func newOriginClusterBinding(bindingName string, roleName string) *rbac.ClusterR
 			ObjectMeta: metav1.ObjectMeta{Name: bindingName},
 			RoleRef: rbac.RoleRef{
 				APIGroup: rbac.GroupName,
-				Kind:     "clusterrole",
+				Kind:     "ClusterRole",
 				Name:     roleName,
 			},
 		},

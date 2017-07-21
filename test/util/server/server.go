@@ -131,9 +131,6 @@ func DefaultMasterOptionsWithTweaks(startEtcd, useDefaultPort bool) (*configapi.
 	if err := CreateMasterCerts(startOptions.MasterArgs); err != nil {
 		return nil, err
 	}
-	if err := CreateBootstrapPolicy(startOptions.MasterArgs); err != nil {
-		return nil, err
-	}
 
 	masterConfig, err := startOptions.MasterArgs.BuildSerializeableMasterConfig()
 	if err != nil {
@@ -150,22 +147,6 @@ func DefaultMasterOptionsWithTweaks(startEtcd, useDefaultPort bool) (*configapi.
 	// force strict handling of service account secret references by default, so that all our examples and controllers will handle it.
 	masterConfig.ServiceAccountConfig.LimitSecretReferences = true
 	return masterConfig, nil
-}
-
-func CreateBootstrapPolicy(masterArgs *start.MasterArgs) error {
-	createBootstrapPolicy := &admin.CreateBootstrapPolicyFileOptions{
-		File: path.Join(masterArgs.ConfigDir.Value(), "policy.json"),
-		OpenShiftSharedResourcesNamespace: "openshift",
-	}
-
-	if err := createBootstrapPolicy.Validate(nil); err != nil {
-		return err
-	}
-	if err := createBootstrapPolicy.CreateBootstrapPolicyFile(); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func CreateMasterCerts(masterArgs *start.MasterArgs) error {
@@ -248,9 +229,6 @@ func DefaultAllInOneOptions() (*configapi.MasterConfig, *configapi.NodeConfig, *
 	startOptions.NodeArgs.MasterCertDir = startOptions.MasterOptions.MasterArgs.ConfigDir.Value()
 
 	if err := CreateMasterCerts(startOptions.MasterOptions.MasterArgs); err != nil {
-		return nil, nil, nil, err
-	}
-	if err := CreateBootstrapPolicy(startOptions.MasterOptions.MasterArgs); err != nil {
 		return nil, nil, nil, err
 	}
 
