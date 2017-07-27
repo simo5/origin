@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	kapi "k8s.io/kubernetes/pkg/api"
 	kapihelper "k8s.io/kubernetes/pkg/api/helper"
-	"k8s.io/kubernetes/pkg/apis/rbac"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
@@ -193,26 +192,6 @@ func (o *ReconcileClusterRoleBindingsOptions) RunReconcileClusterRoleBindings(cm
 	return fetchErr
 }
 
-func convertToOriginClusterRoleBindingsOrDie(in []rbac.ClusterRoleBinding) []authorizationapi.ClusterRoleBinding {
-	out := []authorizationapi.ClusterRoleBinding{}
-	errs := []error{}
-
-	for i := range in {
-		newRoleBinding := &authorizationapi.ClusterRoleBinding{}
-		if err := kapi.Scheme.Convert(&in[i], newRoleBinding, nil); err != nil {
-			errs = append(errs, fmt.Errorf("error converting %q: %v", in[i].Name, err))
-			continue
-		}
-		out = append(out, *newRoleBinding)
-	}
-
-	if len(errs) > 0 {
-		panic(kutilerrors.NewAggregate(errs).Error())
-	}
-
-	return out
-}
-
 // ChangedClusterRoleBindings returns the role bindings that must be created and/or updated to
 // match the recommended bootstrap policy. If roles to reconcile are provided, but not all are
 // found, all partial results are returned.
@@ -221,7 +200,7 @@ func (o *ReconcileClusterRoleBindingsOptions) ChangedClusterRoleBindings() ([]*a
 
 	rolesToReconcile := sets.NewString(o.RolesToReconcile...)
 	rolesNotFound := sets.NewString(o.RolesToReconcile...)
-	bootstrapClusterRoleBindings := convertToOriginClusterRoleBindingsOrDie(bootstrappolicy.GetBootstrapClusterRoleBindings())
+	bootstrapClusterRoleBindings := bootstrappolicy.ConvertToOriginClusterRoleBindingsOrDie(bootstrappolicy.GetBootstrapClusterRoleBindings())
 	for i := range bootstrapClusterRoleBindings {
 		expectedClusterRoleBinding := &bootstrapClusterRoleBindings[i]
 		if (len(rolesToReconcile) > 0) && !rolesToReconcile.Has(expectedClusterRoleBinding.RoleRef.Name) {
