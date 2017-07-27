@@ -174,8 +174,7 @@ func TestSyncNamespace(t *testing.T) {
 	authorizationCache := NewAuthorizationCache(
 		informers.Core().InternalVersion().Namespaces().Informer(),
 		reviewer,
-		MockClusterRoleGetter{}, MockClusterRoleBindingGetter{},
-		MockRoleGetter{}, MockRoleBindingGetter{},
+		informers.Rbac().InternalVersion(),
 	)
 	// we prime the data we need here since we are not running reflectors
 	for i := range namespaceList.Items {
