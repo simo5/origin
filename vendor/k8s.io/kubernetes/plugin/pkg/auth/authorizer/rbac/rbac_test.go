@@ -452,7 +452,7 @@ func BenchmarkAuthorize(b *testing.B) {
 		clusterRoleBindings = append(clusterRoleBindings, &bootstrapBindings[i])
 	}
 
-	_, resolver := rbacregistryvalidation.NewTestRuleResolver(nil, nil, clusterRoles, clusterRoleBindings)
+	resolver, _ := rbacregistryvalidation.NewTestRuleResolver(nil, nil, clusterRoles, clusterRoleBindings)
 
 	authz := New(resolver)
 
