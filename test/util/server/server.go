@@ -481,16 +481,6 @@ func CreateNewProject(clusterAdminClient *client.Client, clientConfig restclient
 		return nil, err
 	}
 
-	client, kubeClient, _, err := util.GetClientForUser(clientConfig, adminUser)
-	if err != nil {
-		return nil, err
-	}
-
-	// Wait for the user to have permissions in the project and for the standard SAs to be ready
-	// This makes it so that tests can immediately use the project after creation
-	if err := WaitForServiceAccounts(kubeClient, projectName, []string{bootstrappolicy.DefaultServiceAccountName, bootstrappolicy.BuilderServiceAccountName, bootstrappolicy.DeployerServiceAccountName}); err != nil {
-		return nil, err
-	}
-
-	return client, nil
+	client, _, _, err := util.GetClientForUser(clientConfig, adminUser)
+	return client, err
 }
