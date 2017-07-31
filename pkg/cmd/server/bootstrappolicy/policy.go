@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/apps"
@@ -985,6 +984,15 @@ func GetBootstrapClusterRoles() []rbac.ClusterRole {
 		}
 	}
 
+	// conditionally add the web console annotations
+	for i := range finalClusterRoles {
+		role := &finalClusterRoles[i]
+		// adding annotation to any role not explicitly in the whitelist below
+		if !rolesToShow.Has(role.Name) {
+			role.Annotations[roleSystemOnly] = roleIsSystemOnly
+		}
+	}
+
 	return finalClusterRoles
 }
 
@@ -1137,42 +1145,6 @@ var clusterRoleConflicts = sets.NewString(
 // clusterRoleBindingConflicts lists the roles which are known to conflict with upstream and which we have manually
 // deconflicted with our own.
 var clusterRoleBindingConflicts = sets.NewString()
-
-func convertClusterRoleBindings(in []rbac.ClusterRoleBinding) ([]authorizationapi.ClusterRoleBinding, error) {
-	out := []authorizationapi.ClusterRoleBinding{}
-	errs := []error{}
-
-	for i := range in {
-		newRoleBinding := &authorizationapi.ClusterRoleBinding{}
-		if err := kapi.Scheme.Convert(&in[i], newRoleBinding, nil); err != nil {
-			errs = append(errs, fmt.Errorf("error converting %q: %v", in[i].Name, err))
-			continue
-		}
-		out = append(out, *newRoleBinding)
-	}
-
-	return out, kutilerrors.NewAggregate(errs)
-}
-
-func convertClusterRoles(in []rbac.ClusterRole) ([]authorizationapi.ClusterRole, error) {
-	out := []authorizationapi.ClusterRole{}
-	errs := []error{}
-
-	for i := range in {
-		newRole := &authorizationapi.ClusterRole{}
-		if err := kapi.Scheme.Convert(&in[i], newRole, nil); err != nil {
-			errs = append(errs, fmt.Errorf("error converting %q: %v", in[i].Name, err))
-			continue
-		}
-		// adding annotation to any role not explicitly in the whitelist below
-		if !rolesToShow.Has(newRole.Name) {
-			newRole.Annotations[roleSystemOnly] = roleIsSystemOnly
-		}
-		out = append(out, *newRole)
-	}
-
-	return out, kutilerrors.NewAggregate(errs)
-}
 
 // The current list of roles considered useful for normal users (non-admin)
 var rolesToShow = sets.NewString(
