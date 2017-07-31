@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/admission"
 	kapi "k8s.io/kubernetes/pkg/api"
+	rbacregistry "k8s.io/kubernetes/pkg/registry/rbac"
 
 	authorizationapi "github.com/openshift/origin/pkg/authorization/apis/authorization"
 	buildapi "github.com/openshift/origin/pkg/build/apis/build"
@@ -51,7 +52,7 @@ func (a *buildByStrategy) Admit(attr admission.Attributes) error {
 	// if this is an update, see if we are only updating the ownerRef.  Garbage collection does this
 	// and we should allow it in general, since you had the power to update and the power to delete.
 	// The worst that happens is that you delete something, but you aren't controlling the privileged object itself
-	if attr.GetOldObject() != nil && oadmission.IsOnlyMutatingGCFields(attr.GetObject(), attr.GetOldObject()) {
+	if attr.GetOldObject() != nil && rbacregistry.IsOnlyMutatingGCFields(attr.GetObject(), attr.GetOldObject()) {
 		return nil
 	}
 
