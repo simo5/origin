@@ -1,6 +1,7 @@
 package bootstrappolicy
 
 import (
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -85,4 +86,12 @@ func TestSystemOnlyRoles(t *testing.T) {
 // it is the same logic that is run on the membership page
 func isSystemOnlyRole(role *rbac.ClusterRole) bool {
 	return role.Annotations[roleSystemOnly] == roleIsSystemOnly
+}
+
+// helper so that roles following this pattern do not need to be manaully added
+// to the hide list
+func isControllerRole(role *rbac.ClusterRole) bool {
+	return strings.HasPrefix(role.Name, "system:controller:") ||
+		strings.HasSuffix(role.Name, "-controller") ||
+		strings.HasPrefix(role.Name, "system:openshift:controller:")
 }

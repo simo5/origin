@@ -2,7 +2,6 @@ package bootstrappolicy
 
 import (
 	"fmt"
-	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -943,37 +942,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 	return roles
 }
 
-var clusterRoleFixupList = sets.NewString(
-	"system:auth-delegator",
-	"system:basic-user",
-	"system:heapster",
-	"system:kube-aggregator",
-	"system:kube-controller-manager",
-	"system:kube-dns",
-	"system:kube-scheduler",
-	"system:node-bootstrapper",
-	"system:node-problem-detector",
-)
-
-// helper so that roles following this pattern do not need to be manaully added
-// to the hide list
-func isControllerRole(role *rbac.ClusterRole) bool {
-	return strings.HasPrefix(role.Name, "system:controller:") ||
-		strings.HasSuffix(role.Name, "-controller") ||
-		strings.HasPrefix(role.Name, "system:openshift:controller:")
-}
-
-//Make sure rbac roles maintain the systemonly annotation for roles openshift
-//wants to hide and mark as system only, even when they are defined in kube's
-//rather then origin's bootstrap policy
-func clusterRoleSystemOnlyFixup(roles []rbac.ClusterRole) {
-	for i := range roles {
-		if clusterRoleFixupList.Has(roles[i].Name) || isControllerRole(&roles[i]) {
-			roles[i].Annotations[roleSystemOnly] = roleIsSystemOnly
-		}
-	}
-}
-
 func GetBootstrapClusterRoles() []rbac.ClusterRole {
 	openshiftClusterRoles := GetOpenshiftBootstrapClusterRoles()
 	// dead cluster roles need to be checked for conflicts (in case something new comes up)
@@ -1016,8 +984,6 @@ func GetBootstrapClusterRoles() []rbac.ClusterRole {
 			finalClusterRoles = append(finalClusterRoles, kubeClusterRoles[i])
 		}
 	}
-
-	clusterRoleSystemOnlyFixup(finalClusterRoles)
 
 	return finalClusterRoles
 }
