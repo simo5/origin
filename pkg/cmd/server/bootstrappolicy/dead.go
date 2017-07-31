@@ -20,12 +20,7 @@ func addDeadClusterRole(name string) {
 
 	deadClusterRoles = append(deadClusterRoles,
 		rbac.ClusterRole{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: name},
 		},
 	)
 }
