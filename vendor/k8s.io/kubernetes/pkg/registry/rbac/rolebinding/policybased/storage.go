@@ -84,6 +84,11 @@ func (s *Storage) Update(ctx genericapirequest.Context, name string, obj rest.Up
 
 		roleBinding := obj.(*rbac.RoleBinding)
 
+		// if we're only mutating fields needed for the GC to eventually delete this obj, return
+		if rbacregistry.IsOnlyMutatingGCFields(obj, oldObj) {
+			return obj, nil
+		}
+
 		// if we're explicitly authorized to bind this role, return
 		if rbacregistry.BindingAuthorized(ctx, roleBinding.RoleRef, namespace, s.authorizer) {
 			return obj, nil

@@ -71,6 +71,11 @@ func (s *Storage) Update(ctx genericapirequest.Context, name string, obj rest.Up
 	nonEscalatingInfo := rest.WrapUpdatedObjectInfo(obj, func(ctx genericapirequest.Context, obj runtime.Object, oldObj runtime.Object) (runtime.Object, error) {
 		clusterRoleBinding := obj.(*rbac.ClusterRoleBinding)
 
+		// if we're only mutating fields needed for the GC to eventually delete this obj, return
+		if rbacregistry.IsOnlyMutatingGCFields(obj, oldObj) {
+			return obj, nil
+		}
+
 		// if we're explicitly authorized to bind this clusterrole, return
 		if rbacregistry.BindingAuthorized(ctx, clusterRoleBinding.RoleRef, metav1.NamespaceNone, s.authorizer) {
 			return obj, nil
