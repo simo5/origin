@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/apps"
@@ -135,7 +134,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 				Name: ClusterAdminRoleName,
 				Annotations: map[string]string{
 					oapi.OpenShiftDescription: "A super-user that can perform any action in the cluster. When granted to a user within a project, they have full control over quota and membership and can perform every action on every resource in the project.",
-					roleSystemOnly:            roleIsSystemOnly,
 				},
 			},
 			Rules: []rbac.PolicyRule{
@@ -146,9 +144,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: SudoerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("impersonate").Groups(userGroup, legacyUserGroup).Resources(authorizationapi.SystemUserResource).Names(SystemAdminUsername).RuleOrDie(),
@@ -157,9 +152,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: ClusterReaderRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule(read...).Groups(kapiGroup).Resources("bindings", "componentstatuses", "configmaps", "endpoints", "events", "limitranges",
@@ -248,9 +240,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: ClusterDebuggerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("get").URLs("/metrics", "/debug/pprof", "/debug/pprof/*").RuleOrDie(),
@@ -259,9 +248,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: BuildStrategyDockerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("create").Groups(buildGroup, legacyBuildGroup).Resources(authorizationapi.DockerBuildResource, authorizationapi.OptimizedDockerBuildResource).RuleOrDie(),
@@ -270,9 +256,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: BuildStrategyCustomRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("create").Groups(buildGroup, legacyBuildGroup).Resources(authorizationapi.CustomBuildResource).RuleOrDie(),
@@ -281,9 +264,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: BuildStrategySourceRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("create").Groups(buildGroup, legacyBuildGroup).Resources(authorizationapi.SourceBuildResource).RuleOrDie(),
@@ -292,9 +272,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: BuildStrategyJenkinsPipelineRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("create").Groups(buildGroup, legacyBuildGroup).Resources(authorizationapi.JenkinsPipelineBuildResource).RuleOrDie(),
@@ -303,9 +280,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: StorageAdminRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule(readWrite...).Groups(kapiGroup).Resources("persistentvolumes").RuleOrDie(),
@@ -513,9 +487,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: SelfAccessReviewerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("create").Groups(authzGroup, legacyAuthzGroup).Resources("selfsubjectrulesreviews").RuleOrDie(),
@@ -527,7 +498,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 				Name: SelfProvisionerRoleName,
 				Annotations: map[string]string{
 					oapi.OpenShiftDescription: "A user that can request projects.",
-					roleSystemOnly:            roleIsSystemOnly,
 				},
 			},
 			Rules: []rbac.PolicyRule{
@@ -539,7 +509,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 				Name: StatusCheckerRoleName,
 				Annotations: map[string]string{
 					oapi.OpenShiftDescription: "A user that can get basic cluster status information.",
-					roleSystemOnly:            roleIsSystemOnly,
 				},
 			},
 			Rules: []rbac.PolicyRule{
@@ -551,9 +520,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: ImageAuditorRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("get", "list", "watch", "patch", "update").Groups(imageGroup, legacyImageGroup).Resources("images").RuleOrDie(),
@@ -606,9 +572,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: ImagePrunerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("get", "list").Groups(kapiGroup).Resources("pods", "replicationcontrollers").RuleOrDie(),
@@ -624,9 +587,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: ImageSignerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("get").Groups(imageGroup, legacyImageGroup).Resources("images", "imagestreams/layers").RuleOrDie(),
@@ -656,9 +616,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: MasterRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule(rbac.VerbAll).Groups(rbac.APIGroupAll).Resources(rbac.ResourceAll).RuleOrDie(),
@@ -668,9 +625,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: OAuthTokenDeleterRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("delete").Groups(oauthGroup, legacyOauthGroup).Resources("oauthaccesstokens", "oauthauthorizetokens").RuleOrDie(),
@@ -679,9 +633,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: RouterRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("list", "watch").Groups(kapiGroup).Resources("endpoints").RuleOrDie(),
@@ -694,9 +645,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: RegistryRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("list").Groups(kapiGroup).Resources("limitranges", "resourcequotas").RuleOrDie(),
@@ -710,9 +658,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: NodeProxierRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				// Used to build serviceLister
@@ -722,9 +667,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: NodeAdminRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				// Allow read-only access to the API objects
@@ -737,9 +679,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: NodeReaderRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				// Allow read-only access to the API objects
@@ -755,9 +694,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: NodeRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				// Needed to check API access.  These creates are non-mutating
@@ -804,9 +740,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: SDNReaderRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule(read...).Groups(networkGroup, legacyNetworkGroup).Resources("egressnetworkpolicies", "hostsubnets", "netnamespaces").RuleOrDie(),
@@ -819,9 +752,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: SDNManagerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("get", "list", "watch", "create", "delete").Groups(networkGroup, legacyNetworkGroup).Resources("hostsubnets", "netnamespaces").RuleOrDie(),
@@ -833,9 +763,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: WebHooksRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("get", "create").Groups(buildGroup, legacyBuildGroup).Resources("buildconfigs/webhooks").RuleOrDie(),
@@ -845,9 +772,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: DiscoveryRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				authorizationapi.RbacDiscoveryRule,
@@ -856,9 +780,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: PersistentVolumeProvisionerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("get", "list", "watch", "create", "delete").Groups(kapiGroup).Resources("persistentvolumes").RuleOrDie(),
@@ -873,9 +794,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: RegistryAdminRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule(readWrite...).Groups(kapiGroup).Resources("serviceaccounts", "secrets").RuleOrDie(),
@@ -897,9 +815,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: RegistryEditorRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule(readWrite...).Groups(kapiGroup).Resources("serviceaccounts", "secrets").RuleOrDie(),
@@ -914,9 +829,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: RegistryViewerRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule(read...).Groups(imageGroup, legacyImageGroup).Resources("imagestreamimages", "imagestreammappings", "imagestreams", "imagestreamtags").RuleOrDie(),
@@ -929,9 +841,6 @@ func GetOpenshiftBootstrapClusterRoles() []rbac.ClusterRole {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: TemplateServiceBrokerClientRoleName,
-				Annotations: map[string]string{
-					roleSystemOnly: roleIsSystemOnly,
-				},
 			},
 			Rules: []rbac.PolicyRule{
 				rbac.NewRule("get", "put", "update", "delete").URLs(templateapi.ServiceBrokerRoot + "/*").RuleOrDie(),
@@ -982,6 +891,18 @@ func GetBootstrapClusterRoles() []rbac.ClusterRole {
 	for i := range kubeClusterRoles {
 		if !clusterRoleConflicts.Has(kubeClusterRoles[i].Name) {
 			finalClusterRoles = append(finalClusterRoles, kubeClusterRoles[i])
+		}
+	}
+
+	// conditionally add the web console annotations
+	for i := range finalClusterRoles {
+		role := &finalClusterRoles[i]
+		// adding annotation to any role not explicitly in the whitelist below
+		if !rolesToShow.Has(role.Name) {
+			if role.Annotations == nil {
+				role.Annotations = map[string]string{}
+			}
+			role.Annotations[roleSystemOnly] = roleIsSystemOnly
 		}
 	}
 
@@ -1137,42 +1058,6 @@ var clusterRoleConflicts = sets.NewString(
 // clusterRoleBindingConflicts lists the roles which are known to conflict with upstream and which we have manually
 // deconflicted with our own.
 var clusterRoleBindingConflicts = sets.NewString()
-
-func convertClusterRoleBindings(in []rbac.ClusterRoleBinding) ([]authorizationapi.ClusterRoleBinding, error) {
-	out := []authorizationapi.ClusterRoleBinding{}
-	errs := []error{}
-
-	for i := range in {
-		newRoleBinding := &authorizationapi.ClusterRoleBinding{}
-		if err := kapi.Scheme.Convert(&in[i], newRoleBinding, nil); err != nil {
-			errs = append(errs, fmt.Errorf("error converting %q: %v", in[i].Name, err))
-			continue
-		}
-		out = append(out, *newRoleBinding)
-	}
-
-	return out, kutilerrors.NewAggregate(errs)
-}
-
-func convertClusterRoles(in []rbac.ClusterRole) ([]authorizationapi.ClusterRole, error) {
-	out := []authorizationapi.ClusterRole{}
-	errs := []error{}
-
-	for i := range in {
-		newRole := &authorizationapi.ClusterRole{}
-		if err := kapi.Scheme.Convert(&in[i], newRole, nil); err != nil {
-			errs = append(errs, fmt.Errorf("error converting %q: %v", in[i].Name, err))
-			continue
-		}
-		// adding annotation to any role not explicitly in the whitelist below
-		if !rolesToShow.Has(newRole.Name) {
-			newRole.Annotations[roleSystemOnly] = roleIsSystemOnly
-		}
-		out = append(out, *newRole)
-	}
-
-	return out, kutilerrors.NewAggregate(errs)
-}
 
 // The current list of roles considered useful for normal users (non-admin)
 var rolesToShow = sets.NewString(
