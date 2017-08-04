@@ -30,6 +30,7 @@ func addConversionFuncs(scheme *runtime.Scheme) error {
 
 func Convert_authorization_ClusterRole_To_rbac_ClusterRole(in *ClusterRole, out *rbac.ClusterRole, _ conversion.Scope) error {
 	out.ObjectMeta = in.ObjectMeta
+	out.Annotations = convert_authorization_Annotations_To_rbac_Annotations(in.Annotations)
 	out.Rules = convert_api_PolicyRules_To_rbac_PolicyRules(in.Rules)
 	return nil
 }
@@ -154,6 +155,7 @@ func getRBACRoleRefKind(namespace string) string {
 
 func Convert_rbac_ClusterRole_To_authorization_ClusterRole(in *rbac.ClusterRole, out *ClusterRole, _ conversion.Scope) error {
 	out.ObjectMeta = in.ObjectMeta
+	out.Annotations = convert_rbac_Annotations_To_authorization_Annotations(in.Annotations)
 	out.Rules = Convert_rbac_PolicyRules_To_authorization_PolicyRules(in.Rules)
 	return nil
 }
@@ -240,4 +242,43 @@ func Convert_rbac_PolicyRules_To_authorization_PolicyRules(in []rbac.PolicyRule)
 		rules = append(rules, r)
 	}
 	return rules
+}
+
+func copyMapExcept(in map[string]string, except string) map[string]string {
+	out := map[string]string{}
+	for k, v := range in {
+		if k != except {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func convert_authorization_Annotations_To_rbac_Annotations(in map[string]string) map[string]string {
+	// can't use const in pkg/oc/admin/policy because of import cycle
+	value, ok := in["openshift.io/reconcile-protect"]
+	if ok {
+		out := copyMapExcept(in, "openshift.io/reconcile-protect")
+		if value == "true" {
+			out[rbac.AutoUpdateAnnotationKey] = "false"
+		} else {
+			out[rbac.AutoUpdateAnnotationKey] = "true"
+		}
+		return out
+	}
+	return in
+}
+
+func convert_rbac_Annotations_To_authorization_Annotations(in map[string]string) map[string]string {
+	value, ok := in[rbac.AutoUpdateAnnotationKey]
+	if ok {
+		out := copyMapExcept(in, rbac.AutoUpdateAnnotationKey)
+		if value == "true" {
+			out["openshift.io/reconcile-protect"] = "false"
+		} else {
+			out["openshift.io/reconcile-protect"] = "true"
+		}
+		return out
+	}
+	return in
 }
