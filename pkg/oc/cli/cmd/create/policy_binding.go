@@ -75,6 +75,12 @@ func (o *CreatePolicyBindingOptions) Complete(cmd *cobra.Command, f *clientcmd.F
 	if err != nil {
 		return err
 	}
+
+	err = clientcmd.Gate(client, "", "3.7.0")
+	if err != nil {
+		return err
+	}
+
 	o.BindingClient = client
 
 	o.Mapper, _ = f.Object()
