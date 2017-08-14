@@ -4,6 +4,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metainternal "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
@@ -104,7 +105,31 @@ func (s *REST) Create(ctx apirequest.Context, obj runtime.Object, _ bool) (runti
 		return nil, err
 	}
 
-	convertedObj, err := util.RoleBindingToRBAC(obj.(*authorizationapi.RoleBinding))
+	/* Validate Namespaces on creation. This is needed because there is some
+	* namespacing defaulting allowed in the API but the conversion function are
+	* strict in what they allow */
+	rbObj := obj.(*authorizationapi.RoleBinding)
+	if len(rbObj.Namespace) != 0 || len(rbObj.RoleRef.Namespace) != 0 {
+		ns := apirequest.NamespaceValue(ctx)
+		if len(rbObj.Namespace) != 0 && rbObj.Namespace != ns {
+			return nil, apierrors.NewBadRequest("The namespace used in the object does not match the namespace of the request")
+		}
+		if len(rbObj.RoleRef.Namespace) != 0 && rbObj.RoleRef.Namespace != ns {
+			return nil, apierrors.NewBadRequest("The namespace used in the object does not match the namespace of the request")
+		}
+
+		/* If either Namespace is "" then reset both and let the RBAC api set
+		* the right namesapces on the objects during validation */
+		deepcopiedObj := &authorizationapi.RoleBinding{}
+		if err := authorizationapi.DeepCopy_authorization_RoleBinding(rbObj, deepcopiedObj, cloner); err != nil {
+			return nil, err
+		}
+		deepcopiedObj.Namespace = ""
+		deepcopiedObj.RoleRef.Namespace = ""
+		rbObj = deepcopiedObj
+	}
+
+	convertedObj, err := util.RoleBindingToRBAC(rbObj)
 	if err != nil {
 		return nil, err
 	}
@@ -173,3 +198,5 @@ func (s *REST) getImpersonatingClient(ctx apirequest.Context) (rbacinternalversi
 	}
 	return rbacClient.RoleBindings(namespace), nil
 }
+
+var cloner = conversion.NewCloner()
