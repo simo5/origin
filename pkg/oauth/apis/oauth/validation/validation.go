@@ -17,6 +17,7 @@ import (
 )
 
 const MinTokenLength = 32
+const MinFlushTimeout = 150
 
 // PKCE [RFC7636] code challenge methods supported
 // https://tools.ietf.org/html/rfc7636#section-4.3
@@ -81,6 +82,11 @@ func ValidateAccessTokenUpdate(newToken, oldToken *oauthapi.OAuthAccessToken) fi
 	allErrs := validation.ValidateObjectMetaUpdate(&newToken.ObjectMeta, &oldToken.ObjectMeta, field.NewPath("metadata"))
 	copied := *oldToken
 	copied.ObjectMeta = newToken.ObjectMeta
+	// allow only TimeoutsIn to be changed
+	copied.TimeoutsIn = newToken.TimeoutsIn
+	if newToken.TimeoutsIn < 0 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("timeoutsIn"), newToken.TimeoutsIn, "cannot be a negative value"))
+	}
 	return append(allErrs, validation.ValidateImmutableField(newToken, &copied, field.NewPath(""))...)
 }
 
@@ -137,6 +143,15 @@ func ValidateClient(client *oauthapi.OAuthClient) field.ErrorList {
 
 	for i, restriction := range client.ScopeRestrictions {
 		allErrs = append(allErrs, ValidateScopeRestriction(restriction, field.NewPath("scopeRestrictions").Index(i))...)
+	}
+
+	if client.AccessTokenTimeoutSeconds != nil {
+		if *client.AccessTokenTimeoutSeconds < MinFlushTimeout {
+			allErrs = append(allErrs, field.Invalid(
+				field.NewPath("accessTokenTimeoutSeconds"),
+				client.AccessTokenTimeoutSeconds,
+				fmt.Sprintf("The minimum valid timeout value is %d seconds", MinFlushTimeout)))
+		}
 	}
 
 	return allErrs

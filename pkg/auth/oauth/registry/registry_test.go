@@ -12,6 +12,7 @@ import (
 
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/authentication/user"
 	clienttesting "k8s.io/client-go/testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/openshift/origin/pkg/auth/userregistry/identitymapper"
 	oapi "github.com/openshift/origin/pkg/oauth/apis/oauth"
 	oauthfake "github.com/openshift/origin/pkg/oauth/generated/internalclientset/fake"
+	oauthclientlister "github.com/openshift/origin/pkg/oauth/generated/listers/oauth/internalversion"
 	"github.com/openshift/origin/pkg/oauth/server/osinserver"
 	"github.com/openshift/origin/pkg/oauth/server/osinserver/registrystorage"
 	userapi "github.com/openshift/origin/pkg/user/apis/user"
@@ -241,7 +243,7 @@ func TestRegistryAndServer(t *testing.T) {
 			objs = append(objs, testCase.ClientAuth)
 		}
 		fakeOAuthClient := oauthfake.NewSimpleClientset(objs...)
-		storage := registrystorage.New(fakeOAuthClient.Oauth().OAuthAccessTokens(), fakeOAuthClient.Oauth().OAuthAuthorizeTokens(), fakeOAuthClient.Oauth().OAuthClients(), NewUserConversion())
+		storage := registrystorage.New(fakeOAuthClient.Oauth().OAuthAccessTokens(), fakeOAuthClient.Oauth().OAuthAuthorizeTokens(), fakeOAuthClient.Oauth().OAuthClients(), NewUserConversion(), nil)
 		config := osinserver.NewDefaultServerConfig()
 
 		h.AuthorizeHandler = osinserver.AuthorizeHandlers{
@@ -302,7 +304,7 @@ func TestRegistryAndServer(t *testing.T) {
 func TestAuthenticateTokenNotFound(t *testing.T) {
 	fakeOAuthClient := oauthfake.NewSimpleClientset()
 	userRegistry := usertest.NewUserRegistry()
-	tokenAuthenticator := NewTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{})
+	tokenAuthenticator := NewTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{}, nil)
 
 	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
 	if found {
@@ -324,7 +326,7 @@ func TestAuthenticateTokenOtherGetError(t *testing.T) {
 		return true, nil, errors.New("get error")
 	})
 	userRegistry := usertest.NewUserRegistry()
-	tokenAuthenticator := NewTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{})
+	tokenAuthenticator := NewTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{}, nil)
 
 	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
 	if found {
@@ -348,7 +350,8 @@ func TestAuthenticateTokenExpired(t *testing.T) {
 		},
 	)
 	userRegistry := usertest.NewUserRegistry()
-	tokenAuthenticator := NewTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{})
+	accessTokenGetter := fakeOAuthClient.Oauth().OAuthAccessTokens()
+	tokenAuthenticator := NewTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}, nil)
 
 	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
 	if found {
@@ -372,8 +375,8 @@ func TestAuthenticateTokenValidated(t *testing.T) {
 	)
 	userRegistry := usertest.NewUserRegistry()
 	userRegistry.GetUsers["foo"] = &userapi.User{ObjectMeta: metav1.ObjectMeta{UID: "bar"}}
-
-	tokenAuthenticator := NewTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{})
+	accessTokenGetter := fakeOAuthClient.Oauth().OAuthAccessTokens()
+	tokenAuthenticator := NewTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}, nil)
 
 	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
 	if !found {
@@ -384,5 +387,70 @@ func TestAuthenticateTokenValidated(t *testing.T) {
 	}
 	if userInfo == nil {
 		t.Error("Did not get a user!")
+	}
+}
+
+type fakeOauthLister struct {
+	fakeclient *oauthfake.Clientset
+}
+
+func (s *fakeOauthLister) List(selector labels.Selector) (ret []*oapi.OAuthClient, err error) {
+	// not implemented
+	return nil, errors.New("Bananas!")
+}
+func (s *fakeOauthLister) Get(name string) (*oapi.OAuthClient, error) {
+	return s.fakeclient.Oauth().OAuthClients().Get(name, metav1.GetOptions{})
+}
+func newFakeOauthLister(fakeclient *oauthfake.Clientset) oauthclientlister.OAuthClientLister {
+	return &fakeOauthLister{fakeclient}
+}
+func TestAuthenticateTokenTimeout(t *testing.T) {
+	var timeout int32 = 4 // 4 seconds
+	fakeOAuthClient := oauthfake.NewSimpleClientset(
+		&oapi.OAuthAccessToken{
+			ObjectMeta: metav1.ObjectMeta{Name: "token", CreationTimestamp: metav1.Time{Time: time.Now()}},
+			ClientName: "testClient",
+			ExpiresIn:  600, // 10 minutes
+			UserName:   "foo",
+			UserUID:    string("bar"),
+			TimeoutsIn: timeout,
+		},
+		&oapi.OAuthClient{
+			ObjectMeta:                metav1.ObjectMeta{Name: "testClient"},
+			AccessTokenTimeoutSeconds: &timeout,
+		},
+	)
+	userRegistry := usertest.NewUserRegistry()
+	userRegistry.GetUsers["foo"] = &userapi.User{ObjectMeta: metav1.ObjectMeta{UID: "bar"}}
+	accessTokenGetter := fakeOAuthClient.Oauth().OAuthAccessTokens()
+	fakeOauthLister := newFakeOauthLister(fakeOAuthClient)
+	timeouts := NewTokenTimeoutUpdater(accessTokenGetter, fakeOauthLister, timeout)
+	tokenAuthenticator := NewTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}, timeouts)
+
+	// first time should succeed
+	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
+	if !found {
+		t.Error("Did not find a token!")
+	}
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if userInfo == nil {
+		t.Error("Did not get a user!")
+	}
+
+	// wait for timeout
+	time.Sleep(time.Second * 5)
+
+	// this time it should fail
+	userInfo, found, err = tokenAuthenticator.AuthenticateToken("token")
+	if found {
+		t.Error("Found token, but it should be missing!")
+	}
+	if err != ErrTimedout {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if userInfo != nil {
+		t.Errorf("Unexpected user: %v", userInfo)
 	}
 }

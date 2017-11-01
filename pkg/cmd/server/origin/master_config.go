@@ -33,6 +33,7 @@ import (
 	imageadmission "github.com/openshift/origin/pkg/image/admission"
 	imageapi "github.com/openshift/origin/pkg/image/apis/image"
 	imageinformer "github.com/openshift/origin/pkg/image/generated/informers/internalversion"
+	oauthinformer "github.com/openshift/origin/pkg/oauth/generated/informers/internalversion"
 	projectauth "github.com/openshift/origin/pkg/project/auth"
 	projectcache "github.com/openshift/origin/pkg/project/cache"
 	"github.com/openshift/origin/pkg/quota/controller/clusterquotamapping"
@@ -100,6 +101,7 @@ type InformerAccess interface {
 	GetClientGoKubeInformers() kubeclientgoinformers.SharedInformerFactory
 	GetAuthorizationInformers() authorizationinformer.SharedInformerFactory
 	GetImageInformers() imageinformer.SharedInformerFactory
+	GetOauthInformers() oauthinformer.SharedInformerFactory
 	GetQuotaInformers() quotainformer.SharedInformerFactory
 	GetSecurityInformers() securityinformer.SharedInformerFactory
 	GetUserInformers() userinformer.SharedInformerFactory
@@ -135,7 +137,7 @@ func BuildMasterConfig(
 
 	kubeletClientConfig := configapi.GetKubeletClientConfig(options)
 
-	authenticator, err := NewAuthenticator(options, privilegedLoopbackConfig, informers)
+	authenticator, tokentimeoutupdater, err := NewAuthenticator(options, privilegedLoopbackConfig, informers)
 	if err != nil {
 		return nil, err
 	}
@@ -204,6 +206,13 @@ func BuildMasterConfig(
 		QuotaInformers:         informers.GetQuotaInformers(),
 		SecurityInformers:      informers.GetSecurityInformers(),
 		UserInformers:          informers.GetUserInformers(),
+	}
+
+	if tokentimeoutupdater != nil {
+		config.additionalPostStartHooks["openshift.io-TokenTimeoutUpdater"] = func(context genericapiserver.PostStartHookContext) error {
+			go tokentimeoutupdater.Start(context.StopCh)
+			return nil
+		}
 	}
 
 	// ensure that the limit range informer will be started

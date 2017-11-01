@@ -25,6 +25,7 @@ import (
 	configapi "github.com/openshift/origin/pkg/cmd/server/api"
 	"github.com/openshift/origin/pkg/cmd/server/bootstrappolicy"
 	oauthclient "github.com/openshift/origin/pkg/oauth/generated/internalclientset/typed/oauth/internalversion"
+	oauthclientlister "github.com/openshift/origin/pkg/oauth/generated/listers/oauth/internalversion"
 	usercache "github.com/openshift/origin/pkg/user/cache"
 	userclient "github.com/openshift/origin/pkg/user/generated/internalclientset"
 	usertypedclient "github.com/openshift/origin/pkg/user/generated/internalclientset/typed/user/internalversion"
@@ -35,18 +36,18 @@ func NewAuthenticator(
 	options configapi.MasterConfig,
 	privilegedLoopbackConfig *rest.Config,
 	informers InformerAccess,
-) (authenticator.Request, error) {
+) (authenticator.Request, *authnregistry.TokenTimeoutUpdater, error) {
 	kubeExternalClient, err := kclientsetexternal.NewForConfig(privilegedLoopbackConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	oauthClient, err := oauthclient.NewForConfig(privilegedLoopbackConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	userClient, err := userclient.NewForConfig(privilegedLoopbackConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// this is safe because the server does a quorum read and we're hitting a "magic" authorizer to get permissions based on system:masters
@@ -54,12 +55,13 @@ func NewAuthenticator(
 	serviceAccountTokenGetter := sacontroller.NewGetterFromClient(kubeExternalClient)
 	apiClientCAs, err := configapi.GetAPIClientCertCAPool(options)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return newAuthenticator(
 		options,
 		oauthClient.OAuthAccessTokens(),
+		informers.GetOauthInformers().Oauth().InternalVersion().OAuthClients().Lister(),
 		serviceAccountTokenGetter,
 		userClient.Users(),
 		apiClientCAs,
@@ -67,7 +69,8 @@ func NewAuthenticator(
 	)
 }
 
-func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclient.OAuthAccessTokenInterface, tokenGetter serviceaccount.ServiceAccountTokenGetter, userGetter usertypedclient.UserResourceInterface, apiClientCAs *x509.CertPool, groupMapper identitymapper.UserToGroupMapper) (authenticator.Request, error) {
+func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclient.OAuthAccessTokenInterface, oauthClientLister oauthclientlister.OAuthClientLister, tokenGetter serviceaccount.ServiceAccountTokenGetter, userGetter usertypedclient.UserResourceInterface, apiClientCAs *x509.CertPool, groupMapper identitymapper.UserToGroupMapper) (authenticator.Request, *authnregistry.TokenTimeoutUpdater, error) {
+	var tokenTimeoutUpdater *authnregistry.TokenTimeoutUpdater = nil
 	authenticators := []authenticator.Request{}
 	tokenAuthenticators := []authenticator.Token{}
 
@@ -77,7 +80,7 @@ func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclie
 		for _, keyFile := range config.ServiceAccountConfig.PublicKeyFiles {
 			readPublicKeys, err := serviceaccount.ReadPublicKeys(keyFile)
 			if err != nil {
-				return nil, fmt.Errorf("Error reading service account key file %s: %v", keyFile, err)
+				return nil, nil, fmt.Errorf("Error reading service account key file %s: %v", keyFile, err)
 			}
 			publicKeys = append(publicKeys, readPublicKeys...)
 		}
@@ -87,7 +90,10 @@ func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclie
 
 	// OAuth token
 	if config.OAuthConfig != nil {
-		oauthTokenAuthenticator := authnregistry.NewTokenAuthenticator(accessTokenGetter, userGetter, groupMapper)
+		if config.OAuthConfig.TokenConfig.AccessTokenTimeoutSeconds != nil {
+			tokenTimeoutUpdater = authnregistry.NewTokenTimeoutUpdater(accessTokenGetter, oauthClientLister, *config.OAuthConfig.TokenConfig.AccessTokenTimeoutSeconds)
+		}
+		oauthTokenAuthenticator := authnregistry.NewTokenAuthenticator(accessTokenGetter, userGetter, groupMapper, tokenTimeoutUpdater)
 		tokenAuthenticators = append(tokenAuthenticators,
 			// if you have a bearer token, you're a human (usually)
 			// if you change this, have a look at the impersonationFilter where we attach groups to the impersonated user
@@ -131,7 +137,7 @@ func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclie
 			config.AuthConfig.RequestHeader.ExtraHeaderPrefixes,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("Error building front proxy auth config: %v", err)
+			return nil, nil, fmt.Errorf("Error building front proxy auth config: %v", err)
 		}
 		topLevelAuthenticators = append(topLevelAuthenticators, union.New(requestHeaderAuthenticator, resultingAuthenticator))
 
@@ -141,5 +147,5 @@ func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclie
 	}
 	topLevelAuthenticators = append(topLevelAuthenticators, anonymous.NewAuthenticator())
 
-	return group.NewAuthenticatedGroupAdder(union.NewFailOnError(topLevelAuthenticators...)), nil
+	return group.NewAuthenticatedGroupAdder(union.NewFailOnError(topLevelAuthenticators...)), tokenTimeoutUpdater, nil
 }

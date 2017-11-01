@@ -17,6 +17,7 @@ import (
 	"github.com/openshift/origin/pkg/auth/userregistry/identitymapper"
 	"github.com/openshift/origin/pkg/cmd/server/api"
 	"github.com/openshift/origin/pkg/cmd/server/api/latest"
+	oauthvalidation "github.com/openshift/origin/pkg/oauth/apis/oauth/validation"
 	"github.com/openshift/origin/pkg/user/apis/user/validation"
 )
 
@@ -100,6 +101,16 @@ func ValidateOAuthConfig(config *api.OAuthConfig, fldPath *field.Path) Validatio
 				strings.Join(challengeRedirectingIdentityProviders, ", "),
 				strings.Join(challengeIssuingIdentityProviders, ", "),
 			)))
+	}
+
+	if config.TokenConfig.AccessTokenTimeoutSeconds != nil {
+		if *config.TokenConfig.AccessTokenTimeoutSeconds < oauthvalidation.MinFlushTimeout {
+			validationResults.AddErrors(field.Invalid(
+				fldPath.Child("tokenConfig", "accessTokenTimeoutSeconds"),
+				*config.TokenConfig.AccessTokenTimeoutSeconds,
+				fmt.Sprintf("The minimum acceptable token timeout value is %d seconds",
+					oauthvalidation.MinFlushTimeout)))
+		}
 	}
 
 	if config.Templates != nil {

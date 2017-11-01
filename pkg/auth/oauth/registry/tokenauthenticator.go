@@ -18,20 +18,22 @@ type TokenAuthenticator struct {
 	tokens      oauthclient.OAuthAccessTokenInterface
 	users       userclient.UserResourceInterface
 	groupMapper identitymapper.UserToGroupMapper
+	timeouts    *TokenTimeoutUpdater
 }
 
 var ErrExpired = errors.New("Token is expired")
 
-func NewTokenAuthenticator(tokens oauthclient.OAuthAccessTokenInterface, users userclient.UserResourceInterface, groupMapper identitymapper.UserToGroupMapper) *TokenAuthenticator {
+func NewTokenAuthenticator(tokens oauthclient.OAuthAccessTokenInterface, users userclient.UserResourceInterface, groupMapper identitymapper.UserToGroupMapper, timeouts *TokenTimeoutUpdater) *TokenAuthenticator {
 	return &TokenAuthenticator{
 		tokens:      tokens,
 		users:       users,
 		groupMapper: groupMapper,
+		timeouts:    timeouts,
 	}
 }
 
-func (a *TokenAuthenticator) AuthenticateToken(value string) (kuser.Info, bool, error) {
-	token, err := a.tokens.Get(value, metav1.GetOptions{})
+func (a *TokenAuthenticator) AuthenticateToken(name string) (kuser.Info, bool, error) {
+	token, err := a.tokens.Get(name, metav1.GetOptions{})
 	if err != nil {
 		return nil, false, err
 	}
@@ -42,6 +44,15 @@ func (a *TokenAuthenticator) AuthenticateToken(value string) (kuser.Info, bool, 
 	}
 	if token.DeletionTimestamp != nil {
 		return nil, false, ErrExpired
+	}
+
+	if a.timeouts != nil {
+		if token.TimeoutsIn > 0 {
+			err := a.timeouts.CheckTimeout(name, token)
+			if err != nil {
+				return nil, false, err
+			}
+		}
 	}
 
 	u, err := a.users.Get(token.UserName, metav1.GetOptions{})

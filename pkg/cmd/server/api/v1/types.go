@@ -835,6 +835,9 @@ type TokenConfig struct {
 	AuthorizeTokenMaxAgeSeconds int32 `json:"authorizeTokenMaxAgeSeconds"`
 	// AccessTokenMaxAgeSeconds defines the maximum age of access tokens
 	AccessTokenMaxAgeSeconds int32 `json:"accessTokenMaxAgeSeconds"`
+	// AccessTokenTimeoutSeconds defines a default timeout for tokens.
+	// nil means the feature is disabled, 0 means tokens do not expire.
+	AccessTokenTimeoutSeconds *int32 `json:"accessTokenTimeoutSeconds,omitempty"`
 }
 
 // SessionConfig specifies options for cookie-based sessions. Used by AuthRequestHandlerSession

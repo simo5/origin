@@ -29,14 +29,20 @@ type storage struct {
 	authorizetoken oauthclient.OAuthAuthorizeTokenInterface
 	client         oauthclientregistry.Getter
 	user           UserConversion
+	tokentimeout   int32
 }
 
-func New(access oauthclient.OAuthAccessTokenInterface, authorize oauthclient.OAuthAuthorizeTokenInterface, client oauthclientregistry.Getter, user UserConversion) osin.Storage {
+func New(access oauthclient.OAuthAccessTokenInterface, authorize oauthclient.OAuthAuthorizeTokenInterface, client oauthclientregistry.Getter, user UserConversion, tokentimeout *int32) osin.Storage {
+	tt := int32(0)
+	if tokentimeout != nil {
+		tt = *tokentimeout
+	}
 	return &storage{
 		accesstoken:    access,
 		authorizetoken: authorize,
 		client:         client,
 		user:           user,
+		tokentimeout:   tt,
 	}
 }
 
@@ -49,6 +55,7 @@ type clientWrapper struct {
 var _ = osin.Client(&clientWrapper{})
 var _ = osin.ClientSecretMatcher(&clientWrapper{})
 var _ = handlers.TokenMaxAgeSeconds(&clientWrapper{})
+var _ = handlers.TokenTimeoutSeconds(&clientWrapper{})
 
 func (w *clientWrapper) GetId() string {
 	return w.id
@@ -86,6 +93,10 @@ func (w *clientWrapper) GetUserData() interface{} {
 
 func (w *clientWrapper) GetTokenMaxAgeSeconds() *int32 {
 	return w.client.AccessTokenMaxAgeSeconds
+}
+
+func (w *clientWrapper) GetTokenTimeoutSeconds() *int32 {
+	return w.client.AccessTokenTimeoutSeconds
 }
 
 // Clone the storage if needed. For example, using mgo, you can clone the session with session.Clone
@@ -248,6 +259,15 @@ func (s *storage) convertToAccessToken(data *osin.AccessData) (*oauthapi.OAuthAc
 	if err := s.user.ConvertToAccessToken(data.UserData, token); err != nil {
 		return nil, err
 	}
+
+	token.TimeoutsIn = s.tokentimeout
+	// Check if we have a client specific inactivity Timeout to set
+	if w, ok := data.Client.(handlers.TokenTimeoutSeconds); ok {
+		if tt := w.GetTokenTimeoutSeconds(); tt != nil {
+			token.TimeoutsIn = *tt
+		}
+	}
+
 	return token, nil
 }
 
