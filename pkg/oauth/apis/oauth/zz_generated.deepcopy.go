@@ -167,6 +167,11 @@ func DeepCopy_oauth_OAuthClient(in interface{}, out interface{}, c *conversion.C
 			*out = new(int32)
 			**out = **in
 		}
+		if in.AccessTokenTimeoutSeconds != nil {
+			in, out := &in.AccessTokenTimeoutSeconds, &out.AccessTokenTimeoutSeconds
+			*out = new(int32)
+			**out = **in
+		}
 		return nil
 	}
 }

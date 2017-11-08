@@ -88,6 +88,7 @@ func autoConvert_v1_OAuthAccessToken_To_oauth_OAuthAccessToken(in *OAuthAccessTo
 	out.UserUID = in.UserUID
 	out.AuthorizeToken = in.AuthorizeToken
 	out.RefreshToken = in.RefreshToken
+	out.TimeoutsIn = in.TimeoutsIn
 	return nil
 }
 
@@ -106,6 +107,7 @@ func autoConvert_oauth_OAuthAccessToken_To_v1_OAuthAccessToken(in *oauth.OAuthAc
 	out.UserUID = in.UserUID
 	out.AuthorizeToken = in.AuthorizeToken
 	out.RefreshToken = in.RefreshToken
+	out.TimeoutsIn = in.TimeoutsIn
 	return nil
 }
 
@@ -213,6 +215,7 @@ func autoConvert_v1_OAuthClient_To_oauth_OAuthClient(in *OAuthClient, out *oauth
 	out.GrantMethod = oauth.GrantHandlerType(in.GrantMethod)
 	out.ScopeRestrictions = *(*[]oauth.ScopeRestriction)(unsafe.Pointer(&in.ScopeRestrictions))
 	out.AccessTokenMaxAgeSeconds = (*int32)(unsafe.Pointer(in.AccessTokenMaxAgeSeconds))
+	out.AccessTokenTimeoutSeconds = (*int32)(unsafe.Pointer(in.AccessTokenTimeoutSeconds))
 	return nil
 }
 
@@ -230,6 +233,7 @@ func autoConvert_oauth_OAuthClient_To_v1_OAuthClient(in *oauth.OAuthClient, out 
 	out.GrantMethod = GrantHandlerType(in.GrantMethod)
 	out.ScopeRestrictions = *(*[]ScopeRestriction)(unsafe.Pointer(&in.ScopeRestrictions))
 	out.AccessTokenMaxAgeSeconds = (*int32)(unsafe.Pointer(in.AccessTokenMaxAgeSeconds))
+	out.AccessTokenTimeoutSeconds = (*int32)(unsafe.Pointer(in.AccessTokenTimeoutSeconds))
 	return nil
 }
 

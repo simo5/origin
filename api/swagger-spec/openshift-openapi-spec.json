@@ -91208,6 +91208,11 @@
        "type": "string"
       }
      },
+     "timeoutsIn": {
+      "description": "TimeoutsIn is the seconds from CreationTime before this token timeouts.",
+      "type": "integer",
+      "format": "int32"
+     },
      "userName": {
       "description": "UserName is the user name associated with this token",
       "type": "string"
@@ -91382,6 +91387,11 @@
     "properties": {
      "accessTokenMaxAgeSeconds": {
       "description": "AccessTokenMaxAgeSeconds overrides the default access token max age for tokens granted to this client. 0 means no expiration.",
+      "type": "integer",
+      "format": "int32"
+     },
+     "accessTokenTimeoutSeconds": {
+      "description": "AccessTokenTimeoutSeconds overrides the default token timeout for tokens granted to this client. 0 means no timeout.",
       "type": "integer",
       "format": "int32"
      },

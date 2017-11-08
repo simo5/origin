@@ -1059,6 +1059,9 @@ func DeepCopy_v1_OAuthConfig(in interface{}, out interface{}, c *conversion.Clon
 			*out = new(SessionConfig)
 			**out = **in
 		}
+		if err := DeepCopy_v1_TokenConfig(&in.TokenConfig, &out.TokenConfig, c); err != nil {
+			return err
+		}
 		if in.Templates != nil {
 			in, out := &in.Templates, &out.Templates
 			*out = new(OAuthTemplates)
@@ -1431,6 +1434,11 @@ func DeepCopy_v1_TokenConfig(in interface{}, out interface{}, c *conversion.Clon
 		in := in.(*TokenConfig)
 		out := out.(*TokenConfig)
 		*out = *in
+		if in.AccessTokenTimeoutSeconds != nil {
+			in, out := &in.AccessTokenTimeoutSeconds, &out.AccessTokenTimeoutSeconds
+			*out = new(int32)
+			**out = **in
+		}
 		return nil
 	}
 }

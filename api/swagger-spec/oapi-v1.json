@@ -27014,6 +27014,11 @@
      "refreshToken": {
       "type": "string",
       "description": "RefreshToken is the value by which this token can be renewed. Can be blank."
+     },
+     "timeoutsIn": {
+      "type": "integer",
+      "format": "int32",
+      "description": "TimeoutsIn is the seconds from CreationTime before this token timeouts."
      }
     }
    },
@@ -27249,6 +27254,11 @@
       "type": "integer",
       "format": "int32",
       "description": "AccessTokenMaxAgeSeconds overrides the default access token max age for tokens granted to this client. 0 means no expiration."
+     },
+     "accessTokenTimeoutSeconds": {
+      "type": "integer",
+      "format": "int32",
+      "description": "AccessTokenTimeoutSeconds overrides the default token timeout for tokens granted to this client. 0 means no timeout."
      }
     }
    },

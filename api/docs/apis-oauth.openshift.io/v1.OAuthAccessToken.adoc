@@ -95,7 +95,8 @@ Populated by the system. Read-only. More info: http://kubernetes.io/docs/user-gu
 </div><div style="margin-left:13px;"><span title="(string) RefreshToken is the value by which this token can be renewed. Can be blank.">refreshToken</span>:
 </div><details><summary><span title="(array) Scopes is an array of the requested scopes.">scopes</span>:
 </summary><div style="margin-left:13px;">- <span title="(string)">[string]</span>:
-</div></details><div style="margin-left:13px;"><span title="(string) UserName is the user name associated with this token">userName</span>:
+</div></details><div style="margin-left:13px;"><span title="(integer) TimeoutsIn is the seconds from CreationTime before this token timeouts.">timeoutsIn</span>:
+</div><div style="margin-left:13px;"><span title="(string) UserName is the user name associated with this token">userName</span>:
 </div><div style="margin-left:13px;"><span title="(string) UserUID is the unique UID associated with this token">userUID</span>:
 </div>
 </pre>

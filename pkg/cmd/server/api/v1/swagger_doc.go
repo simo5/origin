@@ -915,6 +915,7 @@ var map_TokenConfig = map[string]string{
 	"": "TokenConfig holds the necessary configuration options for authorization and access tokens",
 	"authorizeTokenMaxAgeSeconds": "AuthorizeTokenMaxAgeSeconds defines the maximum age of authorize tokens",
 	"accessTokenMaxAgeSeconds":    "AccessTokenMaxAgeSeconds defines the maximum age of access tokens",
+	"accessTokenTimeoutSeconds":   "AccessTokenTimeoutSeconds defines a default timeout for tokens. nil means the feature is disabled, 0 means tokens do not expire.",
 }
 
 func (TokenConfig) SwaggerDoc() map[string]string {

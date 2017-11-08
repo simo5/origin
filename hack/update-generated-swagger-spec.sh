@@ -3,6 +3,12 @@
 # Script to create latest swagger spec.
 source "$(dirname "${BASH_SOURCE}")/lib/init.sh"
 
+# make a build and make sure it's on the path
+if [[ -z "${OPENSHIFT_SKIP_BUILD-}" ]]; then
+  "${OS_ROOT}/hack/build-go.sh"
+fi
+os::util::environment::update_path_var
+
 function cleanup() {
     return_code=$?
     os::test::junit::generate_report

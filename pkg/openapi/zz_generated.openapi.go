@@ -7427,6 +7427,13 @@ func GetOpenAPIDefinitions(ref openapi.ReferenceCallback) map[string]openapi.Ope
 								Format:      "",
 							},
 						},
+						"timeoutsIn": {
+							SchemaProps: spec.SchemaProps{
+								Description: "TimeoutsIn is the seconds from CreationTime before this token timeouts.",
+								Type:        []string{"integer"},
+								Format:      "int32",
+							},
+						},
 					},
 				},
 			},
@@ -7719,6 +7726,13 @@ func GetOpenAPIDefinitions(ref openapi.ReferenceCallback) map[string]openapi.Ope
 						"accessTokenMaxAgeSeconds": {
 							SchemaProps: spec.SchemaProps{
 								Description: "AccessTokenMaxAgeSeconds overrides the default access token max age for tokens granted to this client. 0 means no expiration.",
+								Type:        []string{"integer"},
+								Format:      "int32",
+							},
+						},
+						"accessTokenTimeoutSeconds": {
+							SchemaProps: spec.SchemaProps{
+								Description: "AccessTokenTimeoutSeconds overrides the default token timeout for tokens granted to this client. 0 means no timeout.",
 								Type:        []string{"integer"},
 								Format:      "int32",
 							},
