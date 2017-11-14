@@ -304,9 +304,9 @@ func TestRegistryAndServer(t *testing.T) {
 func TestAuthenticateTokenNotFound(t *testing.T) {
 	fakeOAuthClient := oauthfake.NewSimpleClientset()
 	userRegistry := usertest.NewUserRegistry()
-	tokenAuthenticator := NewTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{}, nil)
+	tokenAuthenticator := NewOAuthTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{})
 
-	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
+	_, userInfo, found, err := tokenAuthenticator.AuthenticateOAuthToken("token")
 	if found {
 		t.Error("Found token, but it should be missing!")
 	}
@@ -326,9 +326,9 @@ func TestAuthenticateTokenOtherGetError(t *testing.T) {
 		return true, nil, errors.New("get error")
 	})
 	userRegistry := usertest.NewUserRegistry()
-	tokenAuthenticator := NewTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{}, nil)
+	tokenAuthenticator := NewOAuthTokenAuthenticator(fakeOAuthClient.Oauth().OAuthAccessTokens(), userRegistry, identitymapper.NoopGroupMapper{})
 
-	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
+	_, userInfo, found, err := tokenAuthenticator.AuthenticateOAuthToken("token")
 	if found {
 		t.Error("Found token, but it should be missing!")
 	}
@@ -351,9 +351,9 @@ func TestAuthenticateTokenExpired(t *testing.T) {
 	)
 	userRegistry := usertest.NewUserRegistry()
 	accessTokenGetter := fakeOAuthClient.Oauth().OAuthAccessTokens()
-	tokenAuthenticator := NewTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}, nil)
+	tokenAuthenticator := NewOAuthTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{})
 
-	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
+	_, userInfo, found, err := tokenAuthenticator.AuthenticateOAuthToken("token")
 	if found {
 		t.Error("Found token, but it should be missing!")
 	}
@@ -376,9 +376,9 @@ func TestAuthenticateTokenValidated(t *testing.T) {
 	userRegistry := usertest.NewUserRegistry()
 	userRegistry.GetUsers["foo"] = &userapi.User{ObjectMeta: metav1.ObjectMeta{UID: "bar"}}
 	accessTokenGetter := fakeOAuthClient.Oauth().OAuthAccessTokens()
-	tokenAuthenticator := NewTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}, nil)
+	tokenAuthenticator := NewOAuthTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{})
 
-	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
+	_, userInfo, found, err := tokenAuthenticator.AuthenticateOAuthToken("token")
 	if !found {
 		t.Error("Did not find a token!")
 	}
@@ -424,11 +424,11 @@ func TestAuthenticateTokenTimeout(t *testing.T) {
 	userRegistry.GetUsers["foo"] = &userapi.User{ObjectMeta: metav1.ObjectMeta{UID: "bar"}}
 	accessTokenGetter := fakeOAuthClient.Oauth().OAuthAccessTokens()
 	fakeOauthLister := newFakeOauthLister(fakeOAuthClient)
-	timeouts := NewTokenTimeoutUpdater(accessTokenGetter, fakeOauthLister, timeout)
-	tokenAuthenticator := NewTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}, timeouts)
+	timeouts, _ := NewOAuthTokenTimeoutValidator(accessTokenGetter, fakeOauthLister, timeout)
+	tokenAuthenticator := NewValidatingOAuthTokenAuthenticator(NewOAuthTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}), timeouts)
 
 	// first time should succeed
-	userInfo, found, err := tokenAuthenticator.AuthenticateToken("token")
+	_, userInfo, found, err := tokenAuthenticator.AuthenticateOAuthToken("token")
 	if !found {
 		t.Error("Did not find a token!")
 	}
@@ -443,7 +443,7 @@ func TestAuthenticateTokenTimeout(t *testing.T) {
 	time.Sleep(time.Second * 5)
 
 	// this time it should fail
-	userInfo, found, err = tokenAuthenticator.AuthenticateToken("token")
+	_, userInfo, found, err = tokenAuthenticator.AuthenticateOAuthToken("token")
 	if found {
 		t.Error("Found token, but it should be missing!")
 	}

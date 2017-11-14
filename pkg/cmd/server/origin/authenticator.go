@@ -15,10 +15,12 @@ import (
 	x509request "k8s.io/apiserver/pkg/authentication/request/x509"
 	tokencache "k8s.io/apiserver/pkg/authentication/token/cache"
 	tokenunion "k8s.io/apiserver/pkg/authentication/token/union"
+	genericapiserver "k8s.io/apiserver/pkg/server"
 	kclientsetexternal "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	sacontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 
+	openshiftauthenticator "github.com/openshift/origin/pkg/auth/authenticator"
 	"github.com/openshift/origin/pkg/auth/authenticator/request/paramtoken"
 	authnregistry "github.com/openshift/origin/pkg/auth/oauth/registry"
 	"github.com/openshift/origin/pkg/auth/userregistry/identitymapper"
@@ -36,7 +38,7 @@ func NewAuthenticator(
 	options configapi.MasterConfig,
 	privilegedLoopbackConfig *rest.Config,
 	informers InformerAccess,
-) (authenticator.Request, *authnregistry.TokenTimeoutUpdater, error) {
+) (authenticator.Request, map[string]genericapiserver.PostStartHookFunc, error) {
 	kubeExternalClient, err := kclientsetexternal.NewForConfig(privilegedLoopbackConfig)
 	if err != nil {
 		return nil, nil, err
@@ -69,8 +71,8 @@ func NewAuthenticator(
 	)
 }
 
-func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclient.OAuthAccessTokenInterface, oauthClientLister oauthclientlister.OAuthClientLister, tokenGetter serviceaccount.ServiceAccountTokenGetter, userGetter usertypedclient.UserResourceInterface, apiClientCAs *x509.CertPool, groupMapper identitymapper.UserToGroupMapper) (authenticator.Request, *authnregistry.TokenTimeoutUpdater, error) {
-	var tokenTimeoutUpdater *authnregistry.TokenTimeoutUpdater = nil
+func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclient.OAuthAccessTokenInterface, oauthClientLister oauthclientlister.OAuthClientLister, tokenGetter serviceaccount.ServiceAccountTokenGetter, userGetter usertypedclient.UserResourceInterface, apiClientCAs *x509.CertPool, groupMapper identitymapper.UserToGroupMapper) (authenticator.Request, map[string]genericapiserver.PostStartHookFunc, error) {
+	postStartHooks := map[string]genericapiserver.PostStartHookFunc{}
 	authenticators := []authenticator.Request{}
 	tokenAuthenticators := []authenticator.Token{}
 
@@ -90,14 +92,19 @@ func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclie
 
 	// OAuth token
 	if config.OAuthConfig != nil {
+		oauthTokenAuthenticator := authnregistry.NewOAuthTokenAuthenticator(accessTokenGetter, userGetter, groupMapper)
 		if config.OAuthConfig.TokenConfig.AccessTokenTimeoutSeconds != nil {
-			tokenTimeoutUpdater = authnregistry.NewTokenTimeoutUpdater(accessTokenGetter, oauthClientLister, *config.OAuthConfig.TokenConfig.AccessTokenTimeoutSeconds)
+			timeoutValidator, timeoutStartFunc := authnregistry.NewOAuthTokenTimeoutValidator(accessTokenGetter, oauthClientLister, *config.OAuthConfig.TokenConfig.AccessTokenTimeoutSeconds)
+			oauthTokenAuthenticator = authnregistry.NewValidatingOAuthTokenAuthenticator(oauthTokenAuthenticator, timeoutValidator)
+			postStartHooks["openshift.io-oauthTokenTimeoutValidator"] = func(context genericapiserver.PostStartHookContext) error {
+				go timeoutStartFunc(context.StopCh)
+				return nil
+			}
 		}
-		oauthTokenAuthenticator := authnregistry.NewTokenAuthenticator(accessTokenGetter, userGetter, groupMapper, tokenTimeoutUpdater)
 		tokenAuthenticators = append(tokenAuthenticators,
 			// if you have a bearer token, you're a human (usually)
 			// if you change this, have a look at the impersonationFilter where we attach groups to the impersonated user
-			group.NewTokenGroupAdder(oauthTokenAuthenticator, []string{bootstrappolicy.AuthenticatedOAuthGroup}))
+			group.NewTokenGroupAdder(openshiftauthenticator.OAuthTokenAdapterFunc(oauthTokenAuthenticator.AuthenticateOAuthToken), []string{bootstrappolicy.AuthenticatedOAuthGroup}))
 	}
 
 	if len(tokenAuthenticators) > 0 {
@@ -147,5 +154,5 @@ func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclie
 	}
 	topLevelAuthenticators = append(topLevelAuthenticators, anonymous.NewAuthenticator())
 
-	return group.NewAuthenticatedGroupAdder(union.NewFailOnError(topLevelAuthenticators...)), tokenTimeoutUpdater, nil
+	return group.NewAuthenticatedGroupAdder(union.NewFailOnError(topLevelAuthenticators...)), postStartHooks, nil
 }

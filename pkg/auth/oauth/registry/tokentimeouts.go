@@ -11,7 +11,9 @@ import (
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	ktypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apiserver/pkg/authentication/user"
 
+	"github.com/openshift/origin/pkg/auth/authenticator"
 	"github.com/openshift/origin/pkg/oauth/apis/oauth"
 	"github.com/openshift/origin/pkg/oauth/apis/oauth/validation"
 	oauthclient "github.com/openshift/origin/pkg/oauth/generated/internalclientset/typed/oauth/internalversion"
@@ -41,7 +43,7 @@ func (a *tokenDataRef) Less(than btree.Item) bool {
 	return a.timeout.Before(than.(*tokenDataRef).timeout)
 }
 
-type TokenTimeoutUpdater struct {
+type oauthTokenTimeoutValidator struct {
 	oauthClient    oauthlister.OAuthClientLister
 	tokens         oauthclient.OAuthAccessTokenInterface
 	tokenChannel   chan tokenData
@@ -52,7 +54,32 @@ type TokenTimeoutUpdater struct {
 	safetyMargin   time.Duration
 }
 
-func NewTokenTimeoutUpdater(tokens oauthclient.OAuthAccessTokenInterface, oauthClient oauthlister.OAuthClientLister, defaultTimeout int32) *TokenTimeoutUpdater {
+type oauthTokenValidatingAuthenticator struct {
+	delegate  authenticator.OAuthToken
+	validator authenticator.OAuthTokenValidator
+}
+
+func NewValidatingOAuthTokenAuthenticator(delegate authenticator.OAuthToken, validators ...authenticator.OAuthTokenValidator) authenticator.OAuthToken {
+	return &oauthTokenValidatingAuthenticator{
+		delegate:  delegate,
+		validator: authenticator.OAuthTokenValidators(validators),
+	}
+}
+
+func (a *oauthTokenValidatingAuthenticator) AuthenticateOAuthToken(name string) (*oauth.OAuthAccessToken, user.Info, bool, error) {
+	token, user, ok, err := a.delegate.AuthenticateOAuthToken(name)
+	if !ok || err != nil {
+		return token, user, ok, err
+	}
+
+	if err := a.validator.Validate(token); err != nil {
+		return nil, nil, false, err
+	}
+
+	return token, user, ok, err
+}
+
+func NewOAuthTokenTimeoutValidator(tokens oauthclient.OAuthAccessTokenInterface, oauthClient oauthlister.OAuthClientLister, defaultTimeout int32) (authenticator.OAuthTokenValidator, func(stopCh <-chan struct{})) {
 	// flushTimeout is set to one third of defaultTimeout
 	flushTimeout := defaultTimeout / 3
 	if flushTimeout < validation.MinFlushTimeout {
@@ -60,18 +87,39 @@ func NewTokenTimeoutUpdater(tokens oauthclient.OAuthAccessTokenInterface, oauthC
 	}
 	// safetyMargin is set to one tenth of flushTimeout
 	safetyMargin := flushTimeout / 10
-	ttu := &TokenTimeoutUpdater{
-		oauthClient,
-		tokens,
-		make(chan tokenData),
-		make(map[string]tokenData),
+	ttu := &oauthTokenTimeoutValidator{
+		oauthClient:  oauthClient,
+		tokens:       tokens,
+		tokenChannel: make(chan tokenData),
+		data:         make(map[string]tokenData),
 		// FIXME: what is the right degree for the btree
-		btree.New(32),
-		timeoutAsDuration(defaultTimeout),
-		timeoutAsDuration(flushTimeout),
-		timeoutAsDuration(safetyMargin),
+		tree:           btree.New(32),
+		defaultTimeout: timeoutAsDuration(defaultTimeout),
+		flushTimeout:   timeoutAsDuration(flushTimeout),
+		safetyMargin:   timeoutAsDuration(safetyMargin),
 	}
-	return ttu
+	return ttu, ttu.start
+}
+
+// Validate is called with a token when it is seen by an authenticator
+// it touches only the tokenChannel so it is safe to call from other threads
+func (a *oauthTokenTimeoutValidator) Validate(token *oauth.OAuthAccessToken) error {
+	if token.TimeoutsIn == 0 {
+		return nil
+	}
+
+	timenow := time.Now()
+	if timeoutAsTime(token.CreationTimestamp.Time, token.TimeoutsIn).Before(timenow) {
+		return ErrTimedout
+	}
+
+	// After a positive timeout check we need to update the timeout and
+	// schedule an update so that we can either set or update the Timeout
+	// we do that launching a micro goroutine to avoid blocking
+	go func(msg tokenData) {
+		a.tokenChannel <- msg
+	}(tokenData{token.Name, token.ClientName, timenow, token.CreationTimestamp.Time, token.TimeoutsIn})
+	return nil
 }
 
 func timeoutAsTime(creation time.Time, timeout int32) time.Time {
@@ -82,26 +130,7 @@ func timeoutAsDuration(timeout int32) time.Duration {
 	return time.Duration(timeout) * time.Second
 }
 
-// CheckTimeout is called with a token when it is seen by an authenticator
-// it touches only the tokenChannel so it is safe to call from other threads
-func (a *TokenTimeoutUpdater) CheckTimeout(name string, token *oauth.OAuthAccessToken) error {
-	timenow := time.Now()
-	if token.TimeoutsIn > 0 {
-		if timeoutAsTime(token.CreationTimestamp.Time, token.TimeoutsIn).Before(timenow) {
-			return ErrTimedout
-		}
-	}
-
-	// After a positive timeout check we need to update the timeout and
-	// schedule an update so that we can either set or update the Timeout
-	// we do that launching a micro goroutine to avoid blocking
-	go func(msg tokenData) {
-		a.tokenChannel <- msg
-	}(tokenData{name, token.ClientName, timenow, token.CreationTimestamp.Time, token.TimeoutsIn})
-	return nil
-}
-
-func (a *TokenTimeoutUpdater) updateTimeouts(clientTimeout int32) {
+func (a *oauthTokenTimeoutValidator) updateTimeouts(clientTimeout int32) {
 	timeout := int32(math.Ceil(float64(clientTimeout) / 3.0))
 	flushTimeout := int32(a.flushTimeout / time.Second)
 	if timeout < flushTimeout {
@@ -113,7 +142,7 @@ func (a *TokenTimeoutUpdater) updateTimeouts(clientTimeout int32) {
 	}
 }
 
-func (a *TokenTimeoutUpdater) clientTimeout(name string) time.Duration {
+func (a *oauthTokenTimeoutValidator) clientTimeout(name string) time.Duration {
 	var timeout time.Duration
 	c, err := a.oauthClient.Get(name)
 	if err != nil {
@@ -132,12 +161,12 @@ func (a *TokenTimeoutUpdater) clientTimeout(name string) time.Duration {
 	return timeout
 }
 
-func (a *TokenTimeoutUpdater) insert(td tokenData) {
+func (a *oauthTokenTimeoutValidator) insert(td tokenData) {
 	a.data[td.name] = td
 	a.tree.ReplaceOrInsert(&tokenDataRef{td.name, timeoutAsTime(td.creation, td.timeout)})
 }
 
-func (a *TokenTimeoutUpdater) remove(td tokenData, tdr *tokenDataRef) {
+func (a *oauthTokenTimeoutValidator) remove(td tokenData, tdr *tokenDataRef) {
 	if tdr == nil {
 		tdr = &tokenDataRef{td.name, timeoutAsTime(td.creation, td.timeout)}
 	}
@@ -145,7 +174,7 @@ func (a *TokenTimeoutUpdater) remove(td tokenData, tdr *tokenDataRef) {
 	delete(a.data, td.name)
 }
 
-func (a *TokenTimeoutUpdater) flush(flushHorizon time.Time) {
+func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 	flushedTokens := 0
 	totalTokens := len(a.data)
 
@@ -183,7 +212,7 @@ func (a *TokenTimeoutUpdater) flush(flushHorizon time.Time) {
 	glog.Infof("Flushed %d tokens out of %d in bucket", flushedTokens, totalTokens)
 }
 
-func (a *TokenTimeoutUpdater) Start(stopCh <-chan struct{}) {
+func (a *oauthTokenTimeoutValidator) start(stopCh <-chan struct{}) {
 	glog.V(5).Infof("Started Token Timeout Flush Handling thread!")
 
 	nextTimer := time.NewTimer(a.flushTimeout)

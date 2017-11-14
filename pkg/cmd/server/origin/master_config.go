@@ -137,7 +137,7 @@ func BuildMasterConfig(
 
 	kubeletClientConfig := configapi.GetKubeletClientConfig(options)
 
-	authenticator, tokentimeoutupdater, err := NewAuthenticator(options, privilegedLoopbackConfig, informers)
+	authenticator, authenticatorPostStartHooks, err := NewAuthenticator(options, privilegedLoopbackConfig, informers)
 	if err != nil {
 		return nil, err
 	}
@@ -208,11 +208,8 @@ func BuildMasterConfig(
 		UserInformers:          informers.GetUserInformers(),
 	}
 
-	if tokentimeoutupdater != nil {
-		config.additionalPostStartHooks["openshift.io-TokenTimeoutUpdater"] = func(context genericapiserver.PostStartHookContext) error {
-			go tokentimeoutupdater.Start(context.StopCh)
-			return nil
-		}
+	for name, hook := range authenticatorPostStartHooks {
+		config.additionalPostStartHooks[name] = hook
 	}
 
 	// ensure that the limit range informer will be started
