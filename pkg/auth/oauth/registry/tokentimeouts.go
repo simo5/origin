@@ -9,7 +9,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/google/btree"
 
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	ktypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/authentication/user"
 
@@ -23,11 +22,12 @@ import (
 var ErrTimedout = errors.New("Token timed out")
 
 type tokenData struct {
-	name     string
-	client   string
-	seen     time.Time
-	creation time.Time
-	timeout  int32
+	token *oauth.OAuthAccessToken
+	seen  time.Time
+}
+
+func (a *tokenData) timeout() time.Time {
+	return a.token.CreationTimestamp.Time.Add(time.Duration(a.token.TimeoutsIn) * time.Second)
 }
 
 type tokenDataRef struct {
@@ -36,7 +36,6 @@ type tokenDataRef struct {
 }
 
 func (a *tokenDataRef) Less(than btree.Item) bool {
-
 	if a.timeout.Equal(than.(*tokenDataRef).timeout) {
 		return a.name < than.(*tokenDataRef).name
 	}
@@ -87,7 +86,7 @@ func NewOAuthTokenTimeoutValidator(tokens oauthclient.OAuthAccessTokenInterface,
 	}
 	// safetyMargin is set to one tenth of flushTimeout
 	safetyMargin := flushTimeout / 10
-	ttu := &oauthTokenTimeoutValidator{
+	timeoutValidator := &oauthTokenTimeoutValidator{
 		oauthClient:  oauthClient,
 		tokens:       tokens,
 		tokenChannel: make(chan tokenData),
@@ -98,7 +97,7 @@ func NewOAuthTokenTimeoutValidator(tokens oauthclient.OAuthAccessTokenInterface,
 		flushTimeout:   timeoutAsDuration(flushTimeout),
 		safetyMargin:   timeoutAsDuration(safetyMargin),
 	}
-	return ttu, ttu.start
+	return timeoutValidator, timeoutValidator.run
 }
 
 // Validate is called with a token when it is seen by an authenticator
@@ -108,26 +107,29 @@ func (a *oauthTokenTimeoutValidator) Validate(token *oauth.OAuthAccessToken) err
 		return nil
 	}
 
-	timenow := time.Now()
-	if timeoutAsTime(token.CreationTimestamp.Time, token.TimeoutsIn).Before(timenow) {
+	now := time.Now()
+	td := tokenData{
+		token: token,
+		seen:  now,
+	}
+	if td.timeout().Before(now) {
 		return ErrTimedout
 	}
 
 	// After a positive timeout check we need to update the timeout and
 	// schedule an update so that we can either set or update the Timeout
-	// we do that launching a micro goroutine to avoid blocking
-	go func(msg tokenData) {
-		a.tokenChannel <- msg
-	}(tokenData{token.Name, token.ClientName, timenow, token.CreationTimestamp.Time, token.TimeoutsIn})
-	return nil
-}
+	// we launch a short lived goroutine to avoid blocking
+	go a.updateTokenSeen(td)
 
-func timeoutAsTime(creation time.Time, timeout int32) time.Time {
-	return creation.Add(time.Duration(timeout) * time.Second)
+	return nil
 }
 
 func timeoutAsDuration(timeout int32) time.Duration {
 	return time.Duration(timeout) * time.Second
+}
+
+func (a *oauthTokenTimeoutValidator) updateTokenSeen(td tokenData) {
+	a.tokenChannel <- td
 }
 
 func (a *oauthTokenTimeoutValidator) updateTimeouts(clientTimeout int32) {
@@ -143,35 +145,30 @@ func (a *oauthTokenTimeoutValidator) updateTimeouts(clientTimeout int32) {
 }
 
 func (a *oauthTokenTimeoutValidator) clientTimeout(name string) time.Duration {
-	var timeout time.Duration
-	c, err := a.oauthClient.Get(name)
+	oauthClient, err := a.oauthClient.Get(name)
 	if err != nil {
-		if !kerrors.IsNotFound(err) {
-			glog.V(5).Infof("Failed to fetch OAuthClient for timeout value: %v", err)
-		}
-		timeout = a.defaultTimeout
-	} else {
-		if c.AccessTokenTimeoutSeconds == nil {
-			timeout = a.defaultTimeout
-		} else {
-			timeout = timeoutAsDuration(*c.AccessTokenTimeoutSeconds)
-			a.updateTimeouts(*c.AccessTokenTimeoutSeconds)
-		}
+		glog.V(5).Infof("Failed to fetch OAuthClient for timeout value: %v", err)
+		return a.defaultTimeout
 	}
-	return timeout
+	if oauthClient.AccessTokenTimeoutSeconds == nil {
+		glog.V(5).Infof("Using default timeout of %d for OAuth client %s", a.defaultTimeout, oauthClient.Name)
+		return a.defaultTimeout
+	}
+	a.updateTimeouts(*oauthClient.AccessTokenTimeoutSeconds)
+	return timeoutAsDuration(*oauthClient.AccessTokenTimeoutSeconds)
 }
 
 func (a *oauthTokenTimeoutValidator) insert(td tokenData) {
-	a.data[td.name] = td
-	a.tree.ReplaceOrInsert(&tokenDataRef{td.name, timeoutAsTime(td.creation, td.timeout)})
+	a.data[td.token.Name] = td
+	a.tree.ReplaceOrInsert(&tokenDataRef{td.token.Name, td.timeout()})
 }
 
 func (a *oauthTokenTimeoutValidator) remove(td tokenData, tdr *tokenDataRef) {
 	if tdr == nil {
-		tdr = &tokenDataRef{td.name, timeoutAsTime(td.creation, td.timeout)}
+		tdr = &tokenDataRef{td.token.Name, td.timeout()}
 	}
 	a.tree.Delete(tdr)
-	delete(a.data, td.name)
+	delete(a.data, td.token.Name)
 }
 
 func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
@@ -180,39 +177,33 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 
 	glog.V(5).Infof("Flushing tokens timing out before %v", flushHorizon)
 
-	for {
-		item := a.tree.Min()
-		if item == nil {
-			// out of items
-			break
-		}
+	for item := a.tree.Min(); item != nil; item = a.tree.Min() {
 		tdr := item.(*tokenDataRef)
-		td := a.data[tdr.name]
-		if item.(*tokenDataRef).timeout.Before(flushHorizon) {
-			delta := a.clientTimeout(td.client)
-			var newtimeout int32
-			if delta > 0 {
-				newtimeout = int32((td.seen.Sub(td.creation) + delta) / time.Second)
-			} else {
-				newtimeout = 0
-			}
-			patch := []byte(fmt.Sprintf(`[{"op": "test", "path": "/timeoutsIn", "value": %d}, {"op": "replace", "path": "/timeoutsIn", "value": %d}]`, td.timeout, newtimeout))
-			_, err := a.tokens.Patch(td.name, ktypes.JSONPatchType, patch)
-			if err != nil {
-				glog.V(5).Infof("Token timeout was not updated: %v", err)
-			}
-			a.remove(td, tdr)
-			flushedTokens++
-		} else {
+		if tdr.timeout.After(flushHorizon) {
 			// out of items within the flush Horizon
 			break
 		}
+
+		td := a.data[tdr.name]
+		delta := a.clientTimeout(td.token.ClientName)
+		var newtimeout int32
+		if delta > 0 {
+			newtimeout = int32((td.seen.Sub(td.token.CreationTimestamp.Time) + delta) / time.Second)
+		}
+		patch := []byte(fmt.Sprintf(`[{"op": "test", "path": "/timeoutsIn", "value": %d}, {"op": "replace", "path": "/timeoutsIn", "value": %d}]`, td.token.TimeoutsIn, newtimeout))
+		_, err := a.tokens.Patch(td.token.Name, ktypes.JSONPatchType, patch)
+		if err != nil {
+			glog.V(5).Infof("Token timeout was not updated: %v", err)
+			// TODO can we not remove and try later?
+		}
+		a.remove(td, tdr)
+		flushedTokens++
 	}
 
-	glog.Infof("Flushed %d tokens out of %d in bucket", flushedTokens, totalTokens)
+	glog.V(5).Infof("Flushed %d tokens out of %d in bucket", flushedTokens, totalTokens)
 }
 
-func (a *oauthTokenTimeoutValidator) start(stopCh <-chan struct{}) {
+func (a *oauthTokenTimeoutValidator) run(stopCh <-chan struct{}) {
 	glog.V(5).Infof("Started Token Timeout Flush Handling thread!")
 
 	nextTimer := time.NewTimer(a.flushTimeout)
@@ -221,16 +212,21 @@ func (a *oauthTokenTimeoutValidator) start(stopCh <-chan struct{}) {
 	for {
 		select {
 		case <-stopCh:
-			// if channel closes terminate
+			// stop regular timer, consume channel if already fired
+			if !nextTimer.Stop() {
+				<-nextTimer.C
+			}
+			// if channel closes, terminate
 			return
+
 		case td := <-a.tokenChannel:
 			a.insert(td)
 			// if this token is going to time out before the timer, fire
 			// immediately (safety margin is added to avoid racing too close)
-			tokenTimeout := timeoutAsTime(td.creation, td.timeout)
+			tokenTimeout := td.timeout()
 			safetyTimeout := nextTimeout.Add(a.safetyMargin)
 			if safetyTimeout.After(tokenTimeout) {
-				glog.Infof("Timeout falls below safety margin (%s < %s) forcing flush", tokenTimeout, safetyTimeout)
+				glog.V(5).Infof("Timeout falls below safety margin (%s < %s) forcing flush", tokenTimeout, safetyTimeout)
 				// stop regular timer, consume channel if already fired
 				if !nextTimer.Stop() {
 					<-nextTimer.C
