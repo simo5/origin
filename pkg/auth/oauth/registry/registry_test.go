@@ -9,6 +9,7 @@ import (
 
 	"github.com/RangelReale/osin"
 	"github.com/RangelReale/osincli"
+	"github.com/google/btree"
 
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -442,5 +443,92 @@ func TestAuthenticateTokenTimeout(t *testing.T) {
 	}
 	if userInfo != nil {
 		t.Errorf("Unexpected user: %v", userInfo)
+	}
+}
+
+func TestTokenTimeoutNoDuplicatesBTree(t *testing.T) {
+	tree := btree.New(32)
+	td1 := &tokenData{
+		token: &oapi.OAuthAccessToken{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "first",
+			},
+		},
+		seen: time.Date(2000, 1, 1, 1, 1, 1, 1, time.UTC),
+	}
+	td2 := &tokenData{
+		token: &oapi.OAuthAccessToken{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "first",
+			},
+		},
+		seen: time.Date(2005, 1, 1, 1, 1, 1, 1, time.UTC),
+	}
+	td3 := &tokenData{
+		token: &oapi.OAuthAccessToken{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "first",
+			},
+		},
+		seen: time.Date(2010, 1, 1, 1, 1, 1, 1, time.UTC),
+	}
+	td4 := &tokenData{
+		token: &oapi.OAuthAccessToken{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "second",
+			},
+		},
+		seen: time.Date(2015, 1, 1, 1, 1, 1, 1, time.UTC),
+	}
+
+	if tree.Len() != 0 {
+		t.Fatalf("Expected tree to be empty, has %d items", tree.Len())
+	}
+
+	tree.ReplaceOrInsert(td1)
+	tree.ReplaceOrInsert(td2)
+	tree.ReplaceOrInsert(td3)
+	tree.ReplaceOrInsert(td4)
+
+	if tree.Len() != 2 {
+		t.Fatalf("Expected tree to contain only 2 items, has %d", tree.Len())
+	}
+
+	item := tree.DeleteMin()
+
+	if tree.Len() != 1 {
+		t.Fatalf("Expected tree to contain only 1 item, has %d", tree.Len())
+	}
+
+	firstToken, ok := item.(*tokenData)
+	if !ok {
+		t.Fatalf("Invalid token type %T", item)
+	}
+
+	if td3.token.Name != firstToken.token.Name {
+		t.Fatalf("Expected token name %s, got %s", td3.token.Name, firstToken.token.Name)
+	}
+
+	if !td3.seen.Equal(firstToken.seen) {
+		t.Fatalf("Expected seen %s, got %s", td3.seen, firstToken.seen)
+	}
+
+	item2 := tree.DeleteMin()
+
+	if tree.Len() != 0 {
+		t.Fatalf("Expected tree to be empty, has %d", tree.Len())
+	}
+
+	secondToken, ok := item2.(*tokenData)
+	if !ok {
+		t.Fatalf("Invalid token type %T", item2)
+	}
+
+	if td4.token.Name != secondToken.token.Name {
+		t.Fatalf("Expected token name %s, got %s", td4.token.Name, secondToken.token.Name)
+	}
+
+	if !td4.seen.Equal(secondToken.seen) {
+		t.Fatalf("Expected seen %s, got %s", td4.seen, secondToken.seen)
 	}
 }

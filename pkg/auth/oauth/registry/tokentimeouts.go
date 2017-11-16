@@ -21,33 +21,41 @@ var ErrTimedout = errors.New("Token timed out")
 
 const timeoutsInPatch = `[{"op": "test", "path": "/timeoutsIn", "value": %d}, {"op": "replace", "path": "/timeoutsIn", "value": %d}]`
 
+var _ btree.Item = &tokenData{}
+
 type tokenData struct {
 	token *oauth.OAuthAccessToken
 	seen  time.Time
 }
 
 func (a *tokenData) timeout() time.Time {
-	return a.token.CreationTimestamp.Time.Add(time.Duration(a.token.TimeoutsIn) * time.Second)
+	return a.token.CreationTimestamp.Add(time.Duration(a.token.TimeoutsIn) * time.Second)
 }
 
-type tokenDataRef struct {
-	name    string
-	timeout time.Time
-}
+func (a *tokenData) Less(than btree.Item) bool {
+	other := than.(*tokenData)
 
-func (a *tokenDataRef) Less(than btree.Item) bool {
-	tdr := than.(*tokenDataRef)
-	if a.timeout.Equal(tdr.timeout) {
-		return a.name < tdr.name
+	// From the btree.Item docs:
+	// > If !a.Less(b) && !b.Less(a), we treat this to mean a == b (i.e. we can only hold one of either a or b in the tree)
+	// Thus we use this to guarantee that the btree will not contain duplicate entries for the same token
+	if a.token.Name == other.token.Name {
+		return false
 	}
-	return a.timeout.Before(tdr.timeout)
+
+	selfTimeout := a.timeout()
+	otherTimeout := other.timeout()
+
+	if selfTimeout.Equal(otherTimeout) {
+		return a.token.Name < other.token.Name
+	}
+
+	return selfTimeout.Before(otherTimeout)
 }
 
 type oauthTokenTimeoutValidator struct {
 	oauthClient    OAuthClientGetter
 	tokens         OAuthAccessTokenPatcher
-	tokenChannel   chan tokenData
-	data           map[string]tokenData
+	tokenChannel   chan *tokenData
 	tree           *btree.BTree
 	defaultTimeout time.Duration
 	flushTimeout   time.Duration
@@ -98,8 +106,7 @@ func NewOAuthTokenTimeoutValidator(tokens OAuthAccessTokenPatcher, oauthClient O
 	timeoutValidator := &oauthTokenTimeoutValidator{
 		oauthClient:  oauthClient,
 		tokens:       tokens,
-		tokenChannel: make(chan tokenData),
-		data:         make(map[string]tokenData),
+		tokenChannel: make(chan *tokenData),
 		// FIXME: what is the right degree for the btree
 		tree:           btree.New(32),
 		defaultTimeout: timeoutAsDuration(defaultTimeout),
@@ -118,7 +125,7 @@ func (a *oauthTokenTimeoutValidator) Validate(token *oauth.OAuthAccessToken) err
 	}
 
 	now := time.Now()
-	td := tokenData{
+	td := &tokenData{
 		token: token,
 		seen:  now,
 	}
@@ -138,7 +145,7 @@ func timeoutAsDuration(timeout int32) time.Duration {
 	return time.Duration(timeout) * time.Second
 }
 
-func (a *oauthTokenTimeoutValidator) updateTokenSeen(td tokenData) {
+func (a *oauthTokenTimeoutValidator) updateTokenSeen(td *tokenData) {
 	a.tokenChannel <- td
 }
 
@@ -172,31 +179,26 @@ func (a *oauthTokenTimeoutValidator) clientTimeout(name string) time.Duration {
 	return timeoutAsDuration(*oauthClient.AccessTokenTimeoutSeconds)
 }
 
-func (a *oauthTokenTimeoutValidator) insert(td tokenData) {
-	a.data[td.token.Name] = td
-	a.tree.ReplaceOrInsert(&tokenDataRef{td.token.Name, td.timeout()})
-}
-
-func (a *oauthTokenTimeoutValidator) remove(td tokenData, tdr *tokenDataRef) {
-	a.tree.Delete(tdr)
-	delete(a.data, td.token.Name)
-}
-
 func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 	flushedTokens := 0
-	totalTokens := len(a.data)
-	var failedPatches []tokenData
+	totalTokens := a.tree.Len()
+	var failedPatches []*tokenData
 
 	glog.V(5).Infof("Flushing tokens timing out before %s", flushHorizon)
 
 	for item := a.tree.Min(); item != nil; item = a.tree.Min() {
-		tdr := item.(*tokenDataRef)
-		if tdr.timeout.After(flushHorizon) {
+		td := item.(*tokenData)
+		if td.timeout().After(flushHorizon) {
 			// out of items within the flush Horizon
 			break
 		}
 
-		td := a.data[tdr.name]
+		// remove item from tree regardless of if we succeed with the patch
+		a.tree.DeleteMin()
+
+		// calculate new timeout for this token
+		// timeout = CreationTimestamp + TimeoutsIn
+		// new TimeoutsIn = seen - CreationTimestamp + AccessTokenTimeoutSeconds
 		delta := a.clientTimeout(td.token.ClientName)
 		newTimeout := int32((td.seen.Sub(td.token.CreationTimestamp.Time) + delta) / time.Second)
 
@@ -212,10 +214,8 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 		} else {
 			flushedTokens++
 			glog.V(5).Infof("Updated token timeout for user=%q client=%q scopes=%v creation=%s from %d to %d",
-				td.token.UserName, td.token.ClientName, td.token.Scopes, td.token.CreationTimestamp.Time, td.token.TimeoutsIn, newTimeout)
+				td.token.UserName, td.token.ClientName, td.token.Scopes, td.token.CreationTimestamp, td.token.TimeoutsIn, newTimeout)
 		}
-
-		a.remove(td, tdr)
 	}
 
 	if retry := len(failedPatches); retry > 0 {
@@ -223,7 +223,7 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 	}
 	// add the failed attempts back so we can try them the next time we flush
 	for _, failedPatch := range failedPatches {
-		a.insert(failedPatch)
+		a.tree.ReplaceOrInsert(failedPatch)
 	}
 
 	glog.V(5).Infof("Flushed %d tokens out of %d in bucket", flushedTokens, totalTokens)
@@ -256,7 +256,7 @@ func (a *oauthTokenTimeoutValidator) run(stopCh <-chan struct{}) {
 			return
 
 		case td := <-a.tokenChannel:
-			a.insert(td)
+			a.tree.ReplaceOrInsert(td)
 			// if this token is going to time out before the timer, fire
 			// immediately (safety margin is added to avoid racing too close)
 			tokenTimeout := td.timeout()
