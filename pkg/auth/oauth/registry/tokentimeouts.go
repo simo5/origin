@@ -8,6 +8,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/google/btree"
 
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	ktypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/authentication/user"
 
@@ -184,6 +185,7 @@ func (a *oauthTokenTimeoutValidator) remove(td tokenData, tdr *tokenDataRef) {
 func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 	flushedTokens := 0
 	totalTokens := len(a.data)
+	var failedPatches []tokenData
 
 	glog.V(5).Infof("Flushing tokens timing out before %s", flushHorizon)
 
@@ -201,15 +203,27 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 		patch := []byte(fmt.Sprintf(timeoutsInPatch, td.token.TimeoutsIn, newTimeout))
 		_, err := a.tokens.Patch(td.token.Name, ktypes.JSONPatchType, patch)
 		if err != nil {
+			// if the token has been deleted, we should not retry
+			if !kerrors.IsNotFound(err) {
+				failedPatches = append(failedPatches, td)
+			}
 			glog.V(5).Infof("Token timeout for user=%q client=%q scopes=%v was not updated: %v",
 				td.token.UserName, td.token.ClientName, td.token.Scopes, err)
-			// TODO can we not remove and try later?
 		} else {
+			flushedTokens++
 			glog.V(5).Infof("Updated token timeout for user=%q client=%q scopes=%v creation=%s from %d to %d",
 				td.token.UserName, td.token.ClientName, td.token.Scopes, td.token.CreationTimestamp.Time, td.token.TimeoutsIn, newTimeout)
 		}
+
 		a.remove(td, tdr)
-		flushedTokens++
+	}
+
+	if retry := len(failedPatches); retry > 0 {
+		glog.V(5).Infof("Re-adding %d failed patches", retry)
+	}
+	// add the failed attempts back so we can try them the next time we flush
+	for _, failedPatch := range failedPatches {
+		a.insert(failedPatch)
 	}
 
 	glog.V(5).Infof("Flushed %d tokens out of %d in bucket", flushedTokens, totalTokens)
