@@ -3,7 +3,6 @@ package registry
 import (
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/golang/glog"
@@ -15,11 +14,11 @@ import (
 	"github.com/openshift/origin/pkg/auth/authenticator"
 	"github.com/openshift/origin/pkg/oauth/apis/oauth"
 	"github.com/openshift/origin/pkg/oauth/apis/oauth/validation"
-	oauthclient "github.com/openshift/origin/pkg/oauth/generated/internalclientset/typed/oauth/internalversion"
-	oauthlister "github.com/openshift/origin/pkg/oauth/generated/listers/oauth/internalversion"
 )
 
 var ErrTimedout = errors.New("Token timed out")
+
+const timeoutsInPatch = `[{"op": "test", "path": "/timeoutsIn", "value": %d}, {"op": "replace", "path": "/timeoutsIn", "value": %d}]`
 
 type tokenData struct {
 	token *oauth.OAuthAccessToken
@@ -36,15 +35,16 @@ type tokenDataRef struct {
 }
 
 func (a *tokenDataRef) Less(than btree.Item) bool {
-	if a.timeout.Equal(than.(*tokenDataRef).timeout) {
-		return a.name < than.(*tokenDataRef).name
+	tdr := than.(*tokenDataRef)
+	if a.timeout.Equal(tdr.timeout) {
+		return a.name < tdr.name
 	}
-	return a.timeout.Before(than.(*tokenDataRef).timeout)
+	return a.timeout.Before(tdr.timeout)
 }
 
 type oauthTokenTimeoutValidator struct {
-	oauthClient    oauthlister.OAuthClientLister
-	tokens         oauthclient.OAuthAccessTokenInterface
+	oauthClient    OAuthClientGetter
+	tokens         OAuthAccessTokenPatcher
 	tokenChannel   chan tokenData
 	data           map[string]tokenData
 	tree           *btree.BTree
@@ -78,7 +78,15 @@ func (a *oauthTokenValidatingAuthenticator) AuthenticateOAuthToken(name string) 
 	return token, user, ok, err
 }
 
-func NewOAuthTokenTimeoutValidator(tokens oauthclient.OAuthAccessTokenInterface, oauthClient oauthlister.OAuthClientLister, defaultTimeout int32) (authenticator.OAuthTokenValidator, func(stopCh <-chan struct{})) {
+type OAuthClientGetter interface {
+	Get(name string) (*oauth.OAuthClient, error)
+}
+
+type OAuthAccessTokenPatcher interface {
+	Patch(name string, pt ktypes.PatchType, data []byte, subresources ...string) (*oauth.OAuthAccessToken, error)
+}
+
+func NewOAuthTokenTimeoutValidator(tokens OAuthAccessTokenPatcher, oauthClient OAuthClientGetter, defaultTimeout int32) (authenticator.OAuthTokenValidator, func(stopCh <-chan struct{})) {
 	// flushTimeout is set to one third of defaultTimeout
 	flushTimeout := defaultTimeout / 3
 	if flushTimeout < validation.MinFlushTimeout {
@@ -97,6 +105,7 @@ func NewOAuthTokenTimeoutValidator(tokens oauthclient.OAuthAccessTokenInterface,
 		flushTimeout:   timeoutAsDuration(flushTimeout),
 		safetyMargin:   timeoutAsDuration(safetyMargin),
 	}
+	glog.V(5).Infof("Timeout validator set to use defaultTimeout=%s flushTimeout=%s", timeoutValidator.defaultTimeout, timeoutValidator.flushTimeout)
 	return timeoutValidator, timeoutValidator.run
 }
 
@@ -133,13 +142,16 @@ func (a *oauthTokenTimeoutValidator) updateTokenSeen(td tokenData) {
 }
 
 func (a *oauthTokenTimeoutValidator) updateTimeouts(clientTimeout int32) {
-	timeout := int32(math.Ceil(float64(clientTimeout) / 3.0))
+	// timeout is set to one third of clientTimeout
+	timeout := clientTimeout / 3
 	flushTimeout := int32(a.flushTimeout / time.Second)
 	if timeout < flushTimeout {
 		if timeout < validation.MinFlushTimeout {
 			timeout = validation.MinFlushTimeout
 		}
+		glog.V(5).Infof("Updating flush timeout to %s", timeout)
 		a.flushTimeout = timeoutAsDuration(timeout)
+		// safetyMargin is set to one tenth of flushTimeout
 		a.safetyMargin = timeoutAsDuration(timeout / 10)
 	}
 }
@@ -147,13 +159,14 @@ func (a *oauthTokenTimeoutValidator) updateTimeouts(clientTimeout int32) {
 func (a *oauthTokenTimeoutValidator) clientTimeout(name string) time.Duration {
 	oauthClient, err := a.oauthClient.Get(name)
 	if err != nil {
-		glog.V(5).Infof("Failed to fetch OAuthClient for timeout value: %v", err)
+		glog.V(5).Infof("Failed to fetch OAuthClient %q for timeout value: %v, using default timeout %s", name, err, a.defaultTimeout)
 		return a.defaultTimeout
 	}
 	if oauthClient.AccessTokenTimeoutSeconds == nil {
-		glog.V(5).Infof("Using default timeout of %d for OAuth client %s", a.defaultTimeout, oauthClient.Name)
+		glog.V(5).Infof("Using default timeout of %s for OAuth client %q", a.defaultTimeout, oauthClient.Name)
 		return a.defaultTimeout
 	}
+	glog.V(5).Infof("OAuth client %q set to use %d seconds as timeout", oauthClient.Name, *oauthClient.AccessTokenTimeoutSeconds)
 	a.updateTimeouts(*oauthClient.AccessTokenTimeoutSeconds)
 	return timeoutAsDuration(*oauthClient.AccessTokenTimeoutSeconds)
 }
@@ -164,9 +177,6 @@ func (a *oauthTokenTimeoutValidator) insert(td tokenData) {
 }
 
 func (a *oauthTokenTimeoutValidator) remove(td tokenData, tdr *tokenDataRef) {
-	if tdr == nil {
-		tdr = &tokenDataRef{td.token.Name, td.timeout()}
-	}
 	a.tree.Delete(tdr)
 	delete(a.data, td.token.Name)
 }
@@ -175,7 +185,7 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 	flushedTokens := 0
 	totalTokens := len(a.data)
 
-	glog.V(5).Infof("Flushing tokens timing out before %v", flushHorizon)
+	glog.V(5).Infof("Flushing tokens timing out before %s", flushHorizon)
 
 	for item := a.tree.Min(); item != nil; item = a.tree.Min() {
 		tdr := item.(*tokenDataRef)
@@ -186,15 +196,17 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 
 		td := a.data[tdr.name]
 		delta := a.clientTimeout(td.token.ClientName)
-		var newtimeout int32
-		if delta > 0 {
-			newtimeout = int32((td.seen.Sub(td.token.CreationTimestamp.Time) + delta) / time.Second)
-		}
-		patch := []byte(fmt.Sprintf(`[{"op": "test", "path": "/timeoutsIn", "value": %d}, {"op": "replace", "path": "/timeoutsIn", "value": %d}]`, td.token.TimeoutsIn, newtimeout))
+		newTimeout := int32((td.seen.Sub(td.token.CreationTimestamp.Time) + delta) / time.Second)
+
+		patch := []byte(fmt.Sprintf(timeoutsInPatch, td.token.TimeoutsIn, newTimeout))
 		_, err := a.tokens.Patch(td.token.Name, ktypes.JSONPatchType, patch)
 		if err != nil {
-			glog.V(5).Infof("Token timeout was not updated: %v", err)
+			glog.V(5).Infof("Token timeout for user=%q client=%q scopes=%v was not updated: %v",
+				td.token.UserName, td.token.ClientName, td.token.Scopes, err)
 			// TODO can we not remove and try later?
+		} else {
+			glog.V(5).Infof("Updated token timeout for user=%q client=%q scopes=%v creation=%s from %d to %d",
+				td.token.UserName, td.token.ClientName, td.token.Scopes, td.token.CreationTimestamp.Time, td.token.TimeoutsIn, newTimeout)
 		}
 		a.remove(td, tdr)
 		flushedTokens++
@@ -209,13 +221,23 @@ func (a *oauthTokenTimeoutValidator) run(stopCh <-chan struct{}) {
 	nextTimer := time.NewTimer(a.flushTimeout)
 	nextTimeout := time.Now().Add(a.flushTimeout)
 
+	updateTimerAndFlush := func() {
+		nextTimer = time.NewTimer(a.flushTimeout)
+		nextTimeout = time.Now().Add(a.flushTimeout)
+		a.flush(nextTimeout.Add(a.safetyMargin))
+	}
+
+	closeTimer := func() {
+		// stop regular timer, consume channel if already fired
+		if !nextTimer.Stop() {
+			<-nextTimer.C
+		}
+	}
+	defer closeTimer()
+
 	for {
 		select {
 		case <-stopCh:
-			// stop regular timer, consume channel if already fired
-			if !nextTimer.Stop() {
-				<-nextTimer.C
-			}
 			// if channel closes, terminate
 			return
 
@@ -226,20 +248,14 @@ func (a *oauthTokenTimeoutValidator) run(stopCh <-chan struct{}) {
 			tokenTimeout := td.timeout()
 			safetyTimeout := nextTimeout.Add(a.safetyMargin)
 			if safetyTimeout.After(tokenTimeout) {
-				glog.V(5).Infof("Timeout falls below safety margin (%s < %s) forcing flush", tokenTimeout, safetyTimeout)
-				// stop regular timer, consume channel if already fired
-				if !nextTimer.Stop() {
-					<-nextTimer.C
-				}
-				nextTimer = time.NewTimer(a.flushTimeout)
-				nextTimeout = time.Now().Add(a.flushTimeout)
-				a.flush(nextTimeout.Add(a.safetyMargin))
+				glog.V(5).Infof("Timeout for user=%q client=%q scopes=%v falls below safety margin (%s < %s) forcing flush",
+					td.token.UserName, td.token.ClientName, td.token.Scopes, tokenTimeout, safetyTimeout)
+				closeTimer()
+				updateTimerAndFlush()
 			}
 
 		case <-nextTimer.C:
-			nextTimer = time.NewTimer(a.flushTimeout)
-			nextTimeout = time.Now().Add(a.flushTimeout)
-			a.flush(nextTimeout.Add(a.safetyMargin))
+			updateTimerAndFlush()
 		}
 	}
 }

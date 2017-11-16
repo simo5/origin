@@ -12,7 +12,6 @@ import (
 
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/authentication/user"
 	clienttesting "k8s.io/client-go/testing"
@@ -22,7 +21,6 @@ import (
 	"github.com/openshift/origin/pkg/auth/userregistry/identitymapper"
 	oapi "github.com/openshift/origin/pkg/oauth/apis/oauth"
 	oauthfake "github.com/openshift/origin/pkg/oauth/generated/internalclientset/fake"
-	oauthclientlister "github.com/openshift/origin/pkg/oauth/generated/listers/oauth/internalversion"
 	"github.com/openshift/origin/pkg/oauth/server/osinserver"
 	"github.com/openshift/origin/pkg/oauth/server/osinserver/registrystorage"
 	userapi "github.com/openshift/origin/pkg/user/apis/user"
@@ -390,20 +388,12 @@ func TestAuthenticateTokenValidated(t *testing.T) {
 	}
 }
 
-type fakeOauthLister struct {
-	fakeclient *oauthfake.Clientset
+type oauthClientGetterFunc func(name string, options metav1.GetOptions) (*oapi.OAuthClient, error)
+
+func (f oauthClientGetterFunc) Get(name string) (*oapi.OAuthClient, error) {
+	return f(name, metav1.GetOptions{})
 }
 
-func (s *fakeOauthLister) List(selector labels.Selector) (ret []*oapi.OAuthClient, err error) {
-	// not implemented
-	return nil, errors.New("Bananas!")
-}
-func (s *fakeOauthLister) Get(name string) (*oapi.OAuthClient, error) {
-	return s.fakeclient.Oauth().OAuthClients().Get(name, metav1.GetOptions{})
-}
-func newFakeOauthLister(fakeclient *oauthfake.Clientset) oauthclientlister.OAuthClientLister {
-	return &fakeOauthLister{fakeclient}
-}
 func TestAuthenticateTokenTimeout(t *testing.T) {
 	var timeout int32 = 4 // 4 seconds
 	fakeOAuthClient := oauthfake.NewSimpleClientset(
@@ -423,8 +413,8 @@ func TestAuthenticateTokenTimeout(t *testing.T) {
 	userRegistry := usertest.NewUserRegistry()
 	userRegistry.GetUsers["foo"] = &userapi.User{ObjectMeta: metav1.ObjectMeta{UID: "bar"}}
 	accessTokenGetter := fakeOAuthClient.Oauth().OAuthAccessTokens()
-	fakeOauthLister := newFakeOauthLister(fakeOAuthClient)
-	timeouts, _ := NewOAuthTokenTimeoutValidator(accessTokenGetter, fakeOauthLister, timeout)
+	getter := oauthClientGetterFunc(fakeOAuthClient.Oauth().OAuthClients().Get)
+	timeouts, _ := NewOAuthTokenTimeoutValidator(accessTokenGetter, getter, timeout)
 	tokenAuthenticator := NewValidatingOAuthTokenAuthenticator(NewOAuthTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}), timeouts)
 
 	// first time should succeed
