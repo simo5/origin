@@ -16,8 +16,12 @@ import (
 	uservalidation "github.com/openshift/origin/pkg/user/apis/user/validation"
 )
 
-const MinTokenLength = 32
-const MinFlushTimeout = 150
+const (
+	MinTokenLength = 32
+	// MinFlushTimeout 2.5 minutes is the smallest time we allow for flush token timeout updates to etcd
+	// Because of the safety margin, this basically means that every token seen by the timeout validator will cause a write
+	MinFlushTimeout = 2*60 + 30
+)
 
 // PKCE [RFC7636] code challenge methods supported
 // https://tools.ietf.org/html/rfc7636#section-4.3
@@ -74,19 +78,25 @@ func ValidateAccessToken(accessToken *oauthapi.OAuthAccessToken) field.ErrorList
 	if ok, msg := ValidateRedirectURI(accessToken.RedirectURI); !ok {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("redirectURI"), accessToken.RedirectURI, msg))
 	}
+	if accessToken.TimeoutsIn < 0 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("timeoutsIn"), accessToken.TimeoutsIn, "cannot be a negative value"))
+	}
 
 	return allErrs
 }
 
 func ValidateAccessTokenUpdate(newToken, oldToken *oauthapi.OAuthAccessToken) field.ErrorList {
 	allErrs := validation.ValidateObjectMetaUpdate(&newToken.ObjectMeta, &oldToken.ObjectMeta, field.NewPath("metadata"))
+	if newToken.TimeoutsIn < oldToken.TimeoutsIn {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("timeoutsIn"), newToken.TimeoutsIn, fmt.Sprintf("cannot be a less than %d", oldToken.TimeoutsIn)))
+	}
+	if newToken.TimeoutsIn < 0 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("timeoutsIn"), newToken.TimeoutsIn, "cannot be a negative value"))
+	}
 	copied := *oldToken
 	copied.ObjectMeta = newToken.ObjectMeta
 	// allow only TimeoutsIn to be changed
 	copied.TimeoutsIn = newToken.TimeoutsIn
-	if newToken.TimeoutsIn < 0 {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("timeoutsIn"), newToken.TimeoutsIn, "cannot be a negative value"))
-	}
 	return append(allErrs, validation.ValidateImmutableField(newToken, &copied, field.NewPath(""))...)
 }
 
@@ -145,11 +155,11 @@ func ValidateClient(client *oauthapi.OAuthClient) field.ErrorList {
 		allErrs = append(allErrs, ValidateScopeRestriction(restriction, field.NewPath("scopeRestrictions").Index(i))...)
 	}
 
-	if client.AccessTokenTimeoutSeconds != nil {
-		if *client.AccessTokenTimeoutSeconds < MinFlushTimeout {
+	if timeout := client.AccessTokenTimeoutSeconds; timeout != nil && *timeout != 0 {
+		if *timeout < MinFlushTimeout {
 			allErrs = append(allErrs, field.Invalid(
 				field.NewPath("accessTokenTimeoutSeconds"),
-				client.AccessTokenTimeoutSeconds,
+				timeout,
 				fmt.Sprintf("The minimum valid timeout value is %d seconds", MinFlushTimeout)))
 		}
 	}

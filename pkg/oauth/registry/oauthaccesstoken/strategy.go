@@ -1,6 +1,8 @@
 package oauthaccesstoken
 
 import (
+	"fmt"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -56,8 +58,13 @@ func (s strategy) Validate(ctx apirequest.Context, obj runtime.Object) field.Err
 		return append(validationErrors, field.InternalError(field.NewPath("clientName"), err))
 	}
 	if err := scopeauthorizer.ValidateScopeRestrictions(client, token.Scopes...); err != nil {
-		return append(validationErrors, field.InternalError(field.NewPath("clientName"), err))
+		validationErrors = append(validationErrors, field.InternalError(field.NewPath("clientName"), err))
 	}
+	if timeout := client.AccessTokenTimeoutSeconds; timeout != nil {
+		if *timeout != token.TimeoutsIn {
+			validationErrors = append(validationErrors, field.Invalid(field.NewPath("timeoutsIn"), token.TimeoutsIn, fmt.Sprintf("must equal %d", *timeout)))
+		}
+	} // TODO technically we should have an else if with the default timeout from master config
 
 	return validationErrors
 }

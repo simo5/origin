@@ -103,13 +103,12 @@ func ValidateOAuthConfig(config *api.OAuthConfig, fldPath *field.Path) Validatio
 			)))
 	}
 
-	if config.TokenConfig.AccessTokenTimeoutSeconds != nil {
-		if *config.TokenConfig.AccessTokenTimeoutSeconds < oauthvalidation.MinFlushTimeout {
+	if timeout := config.TokenConfig.AccessTokenTimeoutSeconds; timeout != nil && *timeout != 0 {
+		if *timeout < oauthvalidation.MinFlushTimeout {
 			validationResults.AddErrors(field.Invalid(
 				fldPath.Child("tokenConfig", "accessTokenTimeoutSeconds"),
-				*config.TokenConfig.AccessTokenTimeoutSeconds,
-				fmt.Sprintf("The minimum acceptable token timeout value is %d seconds",
-					oauthvalidation.MinFlushTimeout)))
+				*timeout,
+				fmt.Sprintf("The minimum acceptable token timeout value is %d seconds", oauthvalidation.MinFlushTimeout)))
 		}
 	}
 
