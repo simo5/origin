@@ -10,6 +10,7 @@ import (
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	ktypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apiserver/pkg/authentication/user"
 
 	"github.com/openshift/origin/pkg/auth/authenticator"
@@ -60,6 +61,7 @@ type oauthTokenTimeoutValidator struct {
 	defaultTimeout time.Duration
 	flushTimeout   time.Duration
 	safetyMargin   time.Duration
+	clock          clock.Clock // for testing
 }
 
 type oauthTokenValidatingAuthenticator struct {
@@ -96,6 +98,10 @@ type OAuthAccessTokenPatcher interface {
 }
 
 func NewOAuthTokenTimeoutValidator(tokens OAuthAccessTokenPatcher, oauthClient OAuthClientGetter, defaultTimeout int32) (authenticator.OAuthTokenValidator, func(stopCh <-chan struct{})) {
+	return newOAuthTokenTimeoutValidator(tokens, oauthClient, defaultTimeout, clock.RealClock{})
+}
+
+func newOAuthTokenTimeoutValidator(tokens OAuthAccessTokenPatcher, oauthClient OAuthClientGetter, defaultTimeout int32, clock clock.Clock) (authenticator.OAuthTokenValidator, func(stopCh <-chan struct{})) {
 	// flushTimeout is set to one third of defaultTimeout
 	flushTimeout := defaultTimeout / 3
 	if flushTimeout < validation.MinFlushTimeout {
@@ -112,6 +118,7 @@ func NewOAuthTokenTimeoutValidator(tokens OAuthAccessTokenPatcher, oauthClient O
 		defaultTimeout: timeoutAsDuration(defaultTimeout),
 		flushTimeout:   timeoutAsDuration(flushTimeout),
 		safetyMargin:   timeoutAsDuration(safetyMargin),
+		clock:          clock,
 	}
 	glog.V(5).Infof("Timeout validator set to use defaultTimeout=%s flushTimeout=%s", timeoutValidator.defaultTimeout, timeoutValidator.flushTimeout)
 	return timeoutValidator, timeoutValidator.run
@@ -124,7 +131,7 @@ func (a *oauthTokenTimeoutValidator) Validate(token *oauth.OAuthAccessToken) err
 		return nil
 	}
 
-	now := time.Now()
+	now := a.clock.Now()
 	td := &tokenData{
 		token: token,
 		seen:  now,
@@ -232,19 +239,19 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 func (a *oauthTokenTimeoutValidator) run(stopCh <-chan struct{}) {
 	glog.V(5).Infof("Started Token Timeout Flush Handling thread!")
 
-	nextTimer := time.NewTimer(a.flushTimeout)
-	nextTimeout := time.Now().Add(a.flushTimeout)
+	nextTimer := a.clock.NewTimer(a.flushTimeout)
+	nextTimeout := a.clock.Now().Add(a.flushTimeout)
 
 	updateTimerAndFlush := func() {
-		nextTimer = time.NewTimer(a.flushTimeout)
-		nextTimeout = time.Now().Add(a.flushTimeout)
+		nextTimer = a.clock.NewTimer(a.flushTimeout)
+		nextTimeout = a.clock.Now().Add(a.flushTimeout)
 		a.flush(nextTimeout.Add(a.safetyMargin))
 	}
 
 	closeTimer := func() {
 		// stop regular timer, consume channel if already fired
 		if !nextTimer.Stop() {
-			<-nextTimer.C
+			<-nextTimer.C()
 		}
 	}
 	defer closeTimer()
@@ -268,7 +275,7 @@ func (a *oauthTokenTimeoutValidator) run(stopCh <-chan struct{}) {
 				updateTimerAndFlush()
 			}
 
-		case <-nextTimer.C:
+		case <-nextTimer.C():
 			updateTimerAndFlush()
 		}
 	}

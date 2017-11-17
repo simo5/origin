@@ -14,6 +14,7 @@ import (
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apiserver/pkg/authentication/user"
 	clienttesting "k8s.io/client-go/testing"
 
@@ -395,28 +396,46 @@ func (f oauthClientGetterFunc) Get(name string) (*oapi.OAuthClient, error) {
 	return f(name, metav1.GetOptions{})
 }
 
+type fakeOAuthTokenAuthenticator struct {
+	token *oapi.OAuthAccessToken
+	user  user.Info
+	err   error
+}
+
+func (f *fakeOAuthTokenAuthenticator) AuthenticateOAuthToken(token string) (*oapi.OAuthAccessToken, user.Info, bool, error) {
+	return f.token, f.user, f.token.Name == token, f.err
+}
+
 func TestAuthenticateTokenTimeout(t *testing.T) {
 	var timeout int32 = 4 // 4 seconds
+	fakeClock := clock.NewFakeClock(time.Date(2016, 1, 1, 1, 1, 1, 1, time.UTC))
+	token := &oapi.OAuthAccessToken{
+		ObjectMeta: metav1.ObjectMeta{Name: "token", CreationTimestamp: metav1.Time{Time: fakeClock.Now()}},
+		ClientName: "testClient",
+		ExpiresIn:  600, // 10 minutes
+		UserName:   "foo",
+		UserUID:    string("bar"),
+		TimeoutsIn: timeout,
+	}
 	fakeOAuthClient := oauthfake.NewSimpleClientset(
-		&oapi.OAuthAccessToken{
-			ObjectMeta: metav1.ObjectMeta{Name: "token", CreationTimestamp: metav1.Time{Time: time.Now()}},
-			ClientName: "testClient",
-			ExpiresIn:  600, // 10 minutes
-			UserName:   "foo",
-			UserUID:    string("bar"),
-			TimeoutsIn: timeout,
-		},
+		token,
 		&oapi.OAuthClient{
 			ObjectMeta:                metav1.ObjectMeta{Name: "testClient"},
 			AccessTokenTimeoutSeconds: &timeout,
 		},
 	)
-	userRegistry := usertest.NewUserRegistry()
-	userRegistry.GetUsers["foo"] = &userapi.User{ObjectMeta: metav1.ObjectMeta{UID: "bar"}}
 	accessTokenGetter := fakeOAuthClient.Oauth().OAuthAccessTokens()
-	getter := oauthClientGetterFunc(fakeOAuthClient.Oauth().OAuthClients().Get)
-	timeouts, _ := NewOAuthTokenTimeoutValidator(accessTokenGetter, getter, timeout)
-	tokenAuthenticator := NewValidatingOAuthTokenAuthenticator(NewOAuthTokenAuthenticator(accessTokenGetter, userRegistry, identitymapper.NoopGroupMapper{}), timeouts)
+	oauthClientGetter := oauthClientGetterFunc(fakeOAuthClient.Oauth().OAuthClients().Get)
+	timeouts, _ := newOAuthTokenTimeoutValidator(accessTokenGetter, oauthClientGetter, timeout, fakeClock)
+	fakeTokenAuthenticator := &fakeOAuthTokenAuthenticator{
+		token: token,
+		user: &user.DefaultInfo{
+			Name: "foo",
+			UID:  "bar",
+		},
+		err: nil,
+	}
+	tokenAuthenticator := NewValidatingOAuthTokenAuthenticator(fakeTokenAuthenticator, timeouts)
 
 	// first time should succeed
 	_, userInfo, found, err := tokenAuthenticator.AuthenticateOAuthToken("token")
@@ -431,7 +450,7 @@ func TestAuthenticateTokenTimeout(t *testing.T) {
 	}
 
 	// wait for timeout
-	time.Sleep(time.Second * 5)
+	fakeClock.Sleep(time.Second * 5)
 
 	// this time it should fail
 	_, userInfo, found, err = tokenAuthenticator.AuthenticateOAuthToken("token")
