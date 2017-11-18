@@ -101,16 +101,17 @@ func newOAuthTokenTimeoutValidator(tokens OAuthAccessTokenPatcher, oauthClient O
 // Validate is called with a token when it is seen by an authenticator
 // it touches only the tokenChannel so it is safe to call from other threads
 func (a *oauthTokenTimeoutValidator) Validate(token *oauth.OAuthAccessToken) error {
-	if token.TimeoutsIn == 0 {
-		return nil
-	}
-
 	now := a.clock.Now()
 	td := &tokenData{
 		token: token,
 		seen:  now,
 	}
-	if td.timeout().Before(now) {
+
+	// We only need to check the token's timeout if the value is not 0 (meaning never timeout)
+	// However, we always need to update that we saw the token so that:
+	// 1. Adding a timeout to OAuth client will cause its older tokens to start having timeouts
+	// 2. Removing a timeout from an OAuth client will cause its older tokens to stop having timeouts
+	if token.TimeoutsIn > 0 && td.timeout().Before(now) {
 		return ErrTimedout
 	}
 
@@ -181,7 +182,13 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 		// timeout = CreationTimestamp + TimeoutsIn
 		// new TimeoutsIn = seen - CreationTimestamp + AccessTokenTimeoutSeconds
 		delta := a.clientTimeout(td.token.ClientName)
-		newTimeout := int32((td.seen.Sub(td.token.CreationTimestamp.Time) + delta) / time.Second)
+
+		// the one special case is if delta is 0, meaning the OAuth client has 0 as its AccessTokenTimeoutSeconds
+		// if that happens, we set TimeoutsIn to 0 to indicate this token should no longer timeout
+		var newTimeout int32
+		if delta > 0 {
+			newTimeout = int32((td.seen.Sub(td.token.CreationTimestamp.Time) + delta) / time.Second)
+		}
 
 		patch := []byte(fmt.Sprintf(timeoutsInPatch, td.token.TimeoutsIn, newTimeout))
 		_, err := a.tokens.Patch(td.token.Name, ktypes.JSONPatchType, patch)
