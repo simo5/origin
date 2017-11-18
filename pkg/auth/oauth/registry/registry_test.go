@@ -465,89 +465,145 @@ func TestAuthenticateTokenTimeout(t *testing.T) {
 	}
 }
 
+// TestTokenTimeoutNoDuplicatesBTree confirms that:
+// 1. btree cannot store two duplicate items
+// 2. Nothing broke tokenData.Less
+// 3. The meaning of btree.Less has not changed
 func TestTokenTimeoutNoDuplicatesBTree(t *testing.T) {
-	tree := btree.New(32)
-	td1 := &tokenData{
+	// simple test with two tokens (the first occurs 3 times and the second once)
+	{
+		tree := btree.New(32)
+		td1 := newTokenData("first", 2000)
+		td2 := newTokenData("first", 2005)
+		td3 := newTokenData("first", 2010)
+		td4 := newTokenData("second", 2015)
+
+		if tree.Len() != 0 {
+			t.Fatalf("Expected tree to be empty, has %d items", tree.Len())
+		}
+
+		tree.ReplaceOrInsert(td1)
+		tree.ReplaceOrInsert(td2)
+		tree.ReplaceOrInsert(td3)
+		tree.ReplaceOrInsert(td4)
+
+		if tree.Len() != 2 {
+			t.Fatalf("Expected tree to contain only 2 items, has %d", tree.Len())
+		}
+
+		item := tree.DeleteMin()
+
+		if tree.Len() != 1 {
+			t.Fatalf("Expected tree to contain only 1 item, has %d", tree.Len())
+		}
+
+		firstToken, ok := item.(*tokenData)
+		if !ok {
+			t.Fatalf("Invalid token type %T", item)
+		}
+
+		if td3.token.Name != firstToken.token.Name {
+			t.Fatalf("Expected token name %s, got %s", td3.token.Name, firstToken.token.Name)
+		}
+
+		if !td3.seen.Equal(firstToken.seen) {
+			t.Fatalf("Expected seen %s, got %s", td3.seen, firstToken.seen)
+		}
+
+		item2 := tree.DeleteMin()
+
+		if tree.Len() != 0 {
+			t.Fatalf("Expected tree to be empty, has %d", tree.Len())
+		}
+
+		secondToken, ok := item2.(*tokenData)
+		if !ok {
+			t.Fatalf("Invalid token type %T", item2)
+		}
+
+		if td4.token.Name != secondToken.token.Name {
+			t.Fatalf("Expected token name %s, got %s", td4.token.Name, secondToken.token.Name)
+		}
+
+		if !td4.seen.Equal(secondToken.seen) {
+			t.Fatalf("Expected seen %s, got %s", td4.seen, secondToken.seen)
+		}
+	}
+
+	// more complicated test with 6 tokens t1, t2, t3, t4, t5, t6 in this order
+	// Where t1 = {"A", 1}, t2 = {"B", 2}, t3 = {"A", 3}, t4 = {"B", 4}, t5 = {"A", 5}, t6 = {"B", 6}
+	// At the end we expect only t5 and t6 to be in the tree, in this order
+	{
+		tree := btree.New(32)
+		t1 := newTokenData("A", 1)
+		t2 := newTokenData("B", 2)
+		t3 := newTokenData("A", 3)
+		t4 := newTokenData("B", 4)
+		t5 := newTokenData("A", 5)
+		t6 := newTokenData("B", 6)
+
+		if tree.Len() != 0 {
+			t.Fatalf("Expected tree to be empty, has %d items", tree.Len())
+		}
+
+		tree.ReplaceOrInsert(t1)
+		tree.ReplaceOrInsert(t2)
+		tree.ReplaceOrInsert(t3)
+		tree.ReplaceOrInsert(t4)
+		tree.ReplaceOrInsert(t5)
+		tree.ReplaceOrInsert(t6)
+
+		if tree.Len() != 2 {
+			t.Fatalf("Expected tree to contain only 2 items, has %d", tree.Len())
+		}
+
+		item := tree.DeleteMin()
+
+		if tree.Len() != 1 {
+			t.Fatalf("Expected tree to contain only 1 item, has %d", tree.Len())
+		}
+
+		firstToken, ok := item.(*tokenData)
+		if !ok {
+			t.Fatalf("Invalid token type %T", item)
+		}
+
+		if t5.token.Name != firstToken.token.Name {
+			t.Fatalf("Expected token name %s, got %s", t5.token.Name, firstToken.token.Name)
+		}
+
+		if !t5.seen.Equal(firstToken.seen) {
+			t.Fatalf("Expected seen %s, got %s", t5.seen, firstToken.seen)
+		}
+
+		item2 := tree.DeleteMin()
+
+		if tree.Len() != 0 {
+			t.Fatalf("Expected tree to be empty, has %d", tree.Len())
+		}
+
+		secondToken, ok := item2.(*tokenData)
+		if !ok {
+			t.Fatalf("Invalid token type %T", item2)
+		}
+
+		if t6.token.Name != secondToken.token.Name {
+			t.Fatalf("Expected token name %s, got %s", t6.token.Name, secondToken.token.Name)
+		}
+
+		if !t6.seen.Equal(secondToken.seen) {
+			t.Fatalf("Expected seen %s, got %s", t6.seen, secondToken.seen)
+		}
+	}
+}
+
+func newTokenData(name string, year int) *tokenData {
+	return &tokenData{
 		token: &oapi.OAuthAccessToken{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "first",
+				Name: name,
 			},
 		},
-		seen: time.Date(2000, 1, 1, 1, 1, 1, 1, time.UTC),
-	}
-	td2 := &tokenData{
-		token: &oapi.OAuthAccessToken{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "first",
-			},
-		},
-		seen: time.Date(2005, 1, 1, 1, 1, 1, 1, time.UTC),
-	}
-	td3 := &tokenData{
-		token: &oapi.OAuthAccessToken{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "first",
-			},
-		},
-		seen: time.Date(2010, 1, 1, 1, 1, 1, 1, time.UTC),
-	}
-	td4 := &tokenData{
-		token: &oapi.OAuthAccessToken{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "second",
-			},
-		},
-		seen: time.Date(2015, 1, 1, 1, 1, 1, 1, time.UTC),
-	}
-
-	if tree.Len() != 0 {
-		t.Fatalf("Expected tree to be empty, has %d items", tree.Len())
-	}
-
-	tree.ReplaceOrInsert(td1)
-	tree.ReplaceOrInsert(td2)
-	tree.ReplaceOrInsert(td3)
-	tree.ReplaceOrInsert(td4)
-
-	if tree.Len() != 2 {
-		t.Fatalf("Expected tree to contain only 2 items, has %d", tree.Len())
-	}
-
-	item := tree.DeleteMin()
-
-	if tree.Len() != 1 {
-		t.Fatalf("Expected tree to contain only 1 item, has %d", tree.Len())
-	}
-
-	firstToken, ok := item.(*tokenData)
-	if !ok {
-		t.Fatalf("Invalid token type %T", item)
-	}
-
-	if td3.token.Name != firstToken.token.Name {
-		t.Fatalf("Expected token name %s, got %s", td3.token.Name, firstToken.token.Name)
-	}
-
-	if !td3.seen.Equal(firstToken.seen) {
-		t.Fatalf("Expected seen %s, got %s", td3.seen, firstToken.seen)
-	}
-
-	item2 := tree.DeleteMin()
-
-	if tree.Len() != 0 {
-		t.Fatalf("Expected tree to be empty, has %d", tree.Len())
-	}
-
-	secondToken, ok := item2.(*tokenData)
-	if !ok {
-		t.Fatalf("Invalid token type %T", item2)
-	}
-
-	if td4.token.Name != secondToken.token.Name {
-		t.Fatalf("Expected token name %s, got %s", td4.token.Name, secondToken.token.Name)
-	}
-
-	if !td4.seen.Equal(secondToken.seen) {
-		t.Fatalf("Expected seen %s, got %s", td4.seen, secondToken.seen)
+		seen: time.Date(year, 1, 1, 1, 1, 1, 1, time.UTC),
 	}
 }
