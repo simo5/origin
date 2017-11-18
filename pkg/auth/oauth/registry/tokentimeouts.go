@@ -138,7 +138,7 @@ func (a *oauthTokenTimeoutValidator) updateTimeouts(clientTimeout int32) {
 		if timeout < validation.MinFlushTimeout {
 			timeout = validation.MinFlushTimeout
 		}
-		glog.V(5).Infof("Updating flush timeout to %s", timeout)
+		glog.V(5).Infof("Updating flush timeout from %s to %d seconds", a.flushTimeout, timeout)
 		a.flushTimeout = timeoutAsDuration(timeout)
 		// safetyMargin is set to one tenth of flushTimeout
 		a.safetyMargin = timeoutAsDuration(timeout / 10)
