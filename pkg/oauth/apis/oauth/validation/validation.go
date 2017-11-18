@@ -87,7 +87,11 @@ func ValidateAccessToken(accessToken *oauthapi.OAuthAccessToken) field.ErrorList
 
 func ValidateAccessTokenUpdate(newToken, oldToken *oauthapi.OAuthAccessToken) field.ErrorList {
 	allErrs := validation.ValidateObjectMetaUpdate(&newToken.ObjectMeta, &oldToken.ObjectMeta, field.NewPath("metadata"))
-	if newToken.TimeoutsIn < oldToken.TimeoutsIn {
+	// this value is updated by multiple masters, possibly at the time same time
+	// since there is no ordering guarantee to how the masters apply these updates, we do not allow this value
+	// to be reduced since that means the token will timeout sooner, not later
+	// 0 is a special case since that means remove any timeout this token has, so that is allowed
+	if newToken.TimeoutsIn > 0 && newToken.TimeoutsIn < oldToken.TimeoutsIn {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("timeoutsIn"), newToken.TimeoutsIn, fmt.Sprintf("cannot be a less than %d", oldToken.TimeoutsIn)))
 	}
 	if newToken.TimeoutsIn < 0 {

@@ -71,6 +71,7 @@ func (c *MasterConfig) newOpenshiftAPIConfig(kubeAPIServerConfig apiserver.Confi
 	}
 	if c.Options.OAuthConfig != nil {
 		ret.ServiceAccountMethod = c.Options.OAuthConfig.GrantConfig.ServiceAccountMethod
+		ret.AccessTokenTimeoutSeconds = c.Options.OAuthConfig.TokenConfig.AccessTokenTimeoutSeconds
 	}
 
 	return ret, ret.Validate()

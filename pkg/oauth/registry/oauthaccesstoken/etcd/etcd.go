@@ -25,8 +25,8 @@ type REST struct {
 var _ rest.StandardStorage = &REST{}
 
 // NewREST returns a RESTStorage object that will work against access tokens
-func NewREST(optsGetter restoptions.Getter, clientGetter oauthclient.Getter, backends ...storage.Interface) (*REST, error) {
-	strategy := oauthaccesstoken.NewStrategy(clientGetter)
+func NewREST(optsGetter restoptions.Getter, clientGetter oauthclient.Getter, accessTokenTimeoutSeconds *int32, backends ...storage.Interface) (*REST, error) {
+	strategy := oauthaccesstoken.NewStrategy(clientGetter, accessTokenTimeoutSeconds)
 	store := &registry.Store{
 		Copier:                   kapi.Scheme,
 		NewFunc:                  func() runtime.Object { return &oauthapi.OAuthAccessToken{} },

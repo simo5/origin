@@ -107,7 +107,8 @@ type OpenshiftAPIConfig struct {
 	EnableBuilds bool
 
 	// oauth API server
-	ServiceAccountMethod configapi.GrantHandlerType
+	ServiceAccountMethod      configapi.GrantHandlerType
+	AccessTokenTimeoutSeconds *int32
 
 	ClusterQuotaMappingController *clusterquotamapping.ClusterQuotaMappingController
 
@@ -340,9 +341,10 @@ func (c *completedConfig) withOAuthAPIServer(delegateAPIServer genericapiserver.
 		GenericConfig:             c.GenericConfig,
 		CoreAPIServerClientConfig: c.GenericConfig.LoopbackClientConfig,
 		ServiceAccountMethod:      c.ServiceAccountMethod,
-		Codecs:                    kapi.Codecs,
-		Registry:                  kapi.Registry,
-		Scheme:                    kapi.Scheme,
+		AccessTokenTimeoutSeconds: c.AccessTokenTimeoutSeconds,
+		Codecs:   kapi.Codecs,
+		Registry: kapi.Registry,
+		Scheme:   kapi.Scheme,
 	}
 	server, err := config.Complete().New(delegateAPIServer)
 	if err != nil {

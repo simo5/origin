@@ -31,6 +31,7 @@ type OAuthAPIServerConfig struct {
 
 	CoreAPIServerClientConfig *restclient.Config
 	ServiceAccountMethod      configapi.GrantHandlerType
+	AccessTokenTimeoutSeconds *int32
 
 	// TODO these should all become local eventually
 	Scheme   *runtime.Scheme
@@ -139,7 +140,7 @@ func (c *OAuthAPIServerConfig) newV1RESTStorage() (map[string]rest.Storage, erro
 	if err != nil {
 		return nil, fmt.Errorf("error building REST storage: %v", err)
 	}
-	accessTokenStorage, err := accesstokenetcd.NewREST(c.GenericConfig.RESTOptionsGetter, combinedOAuthClientGetter)
+	accessTokenStorage, err := accesstokenetcd.NewREST(c.GenericConfig.RESTOptionsGetter, combinedOAuthClientGetter, c.AccessTokenTimeoutSeconds)
 	if err != nil {
 		return nil, fmt.Errorf("error building REST storage: %v", err)
 	}

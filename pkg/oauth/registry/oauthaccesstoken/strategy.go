@@ -20,14 +20,15 @@ import (
 type strategy struct {
 	runtime.ObjectTyper
 
-	clientGetter oauthclient.Getter
+	clientGetter              oauthclient.Getter
+	accessTokenTimeoutSeconds *int32
 }
 
 var _ rest.RESTCreateStrategy = strategy{}
 var _ rest.RESTUpdateStrategy = strategy{}
 
-func NewStrategy(clientGetter oauthclient.Getter) strategy {
-	return strategy{ObjectTyper: kapi.Scheme, clientGetter: clientGetter}
+func NewStrategy(clientGetter oauthclient.Getter, accessTokenTimeoutSeconds *int32) strategy {
+	return strategy{ObjectTyper: kapi.Scheme, clientGetter: clientGetter, accessTokenTimeoutSeconds: accessTokenTimeoutSeconds}
 }
 
 func (strategy) DefaultGarbageCollectionPolicy() rest.GarbageCollectionPolicy {
@@ -60,11 +61,19 @@ func (s strategy) Validate(ctx apirequest.Context, obj runtime.Object) field.Err
 	if err := scopeauthorizer.ValidateScopeRestrictions(client, token.Scopes...); err != nil {
 		validationErrors = append(validationErrors, field.InternalError(field.NewPath("clientName"), err))
 	}
-	if timeout := client.AccessTokenTimeoutSeconds; timeout != nil {
-		if *timeout != token.TimeoutsIn {
-			validationErrors = append(validationErrors, field.Invalid(field.NewPath("timeoutsIn"), token.TimeoutsIn, fmt.Sprintf("must equal %d", *timeout)))
+
+	// if the token timeout feature is enabled, then we validate that created tokens have a TimeoutsIn value that we expect based on the OAuth client or the default
+	if defaultTimeout := s.accessTokenTimeoutSeconds; defaultTimeout != nil {
+		if timeout := client.AccessTokenTimeoutSeconds; timeout != nil {
+			if *timeout != token.TimeoutsIn {
+				validationErrors = append(validationErrors, field.Invalid(field.NewPath("timeoutsIn"), token.TimeoutsIn, fmt.Sprintf("must equal %d", *timeout)))
+			}
+		} else {
+			if *defaultTimeout != token.TimeoutsIn {
+				validationErrors = append(validationErrors, field.Invalid(field.NewPath("timeoutsIn"), token.TimeoutsIn, fmt.Sprintf("must equal %d", *defaultTimeout)))
+			}
 		}
-	} // TODO technically we should have an else if with the default timeout from master config
+	}
 
 	return validationErrors
 }
