@@ -193,8 +193,10 @@ func (a *oauthTokenTimeoutValidator) flush(flushHorizon time.Time) {
 		patch := []byte(fmt.Sprintf(timeoutsInPatch, td.token.TimeoutsIn, newTimeout))
 		_, err := a.tokens.Patch(td.token.Name, ktypes.JSONPatchType, patch)
 		if err != nil {
-			// if the token has been deleted, we should not retry
-			if !kerrors.IsNotFound(err) {
+			// we should only retry if the error may be transient
+			// TODO determine if we should bother retrying at all
+			// TODO if we do decide to retry, maybe we should use one of the exponential backoff helpers here instead of adding back to the tree
+			if kerrors.IsConflict(err) || kerrors.IsServerTimeout(err) {
 				failedPatches = append(failedPatches, td)
 			}
 			glog.V(5).Infof("Token timeout for user=%q client=%q scopes=%v was not updated: %v",
