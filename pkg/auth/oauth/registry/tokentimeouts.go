@@ -3,6 +3,7 @@ package registry
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/golang/glog"
@@ -34,11 +35,13 @@ func (a *tokenData) timeout() time.Time {
 
 func (a *tokenData) Less(than btree.Item) bool {
 	other := than.(*tokenData)
+	fmt.Fprintf(os.Stderr, "token: [%s, %v] is Less than [%s, %v] ? ", a.token.Name, a.timeout(), other.token.Name, other.timeout())
 
 	// From the btree.Item docs:
 	// > If !a.Less(b) && !b.Less(a), we treat this to mean a == b (i.e. we can only hold one of either a or b in the tree)
 	// Thus we use this to guarantee that the btree will not contain duplicate entries for the same token
 	if a.token.Name == other.token.Name {
+		fmt.Fprintf(os.Stderr, "No (%s == %s)\n", a.token.Name, other.token.Name)
 		return false
 	}
 
@@ -46,10 +49,14 @@ func (a *tokenData) Less(than btree.Item) bool {
 	otherTimeout := other.timeout()
 
 	if selfTimeout.Equal(otherTimeout) {
-		return a.token.Name < other.token.Name
+		b := a.token.Name < other.token.Name
+		fmt.Fprintf(os.Stderr, "%v (%s < %s)\n", b, a.token.Name, other.token.Name)
+		return b
 	}
 
-	return selfTimeout.Before(otherTimeout)
+	b := selfTimeout.Before(otherTimeout)
+	fmt.Fprintf(os.Stderr, "%v (%v < %v)\n", b, selfTimeout, otherTimeout)
+	return b
 }
 
 type oauthTokenTimeoutValidator struct {

@@ -601,7 +601,8 @@ func newTokenData(name string, year int) *tokenData {
 	return &tokenData{
 		token: &oapi.OAuthAccessToken{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
+				Name:              name,
+				CreationTimestamp: metav1.NewTime(time.Date(year, 1, 1, 1, 1, 1, 1, time.UTC)),
 			},
 		},
 		seen: time.Date(year, 1, 1, 1, 1, 1, 1, time.UTC),
