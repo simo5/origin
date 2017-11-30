@@ -7458,6 +7458,13 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 								Format:      "",
 							},
 						},
+						"inactivityTimeoutSeconds": {
+							SchemaProps: spec.SchemaProps{
+								Description: "InactivityTimeoutSeconds is the seconds from CreationTime after which this token times out if no activity is detected.",
+								Type:        []string{"integer"},
+								Format:      "int32",
+							},
+						},
 					},
 				},
 			},
@@ -7750,6 +7757,13 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 						"accessTokenMaxAgeSeconds": {
 							SchemaProps: spec.SchemaProps{
 								Description: "AccessTokenMaxAgeSeconds overrides the default access token max age for tokens granted to this client. 0 means no expiration.",
+								Type:        []string{"integer"},
+								Format:      "int32",
+							},
+						},
+						"accessTokenInactivityTimeoutSeconds": {
+							SchemaProps: spec.SchemaProps{
+								Description: "AccessTokenInactivityTimeoutSeconds overrides the default token timeout for tokens granted to this client. This option is meaningful only if the feature is enabled by setting the corresponding configuration option in the master configuration. This value needs to be set only if the default set in configuration is not appropriate for this client. Valid values are: - 0: Tokens for this client never time out - X: Tokens time out if there is no activity for X seconds The current minimum allowed value for X is 5 minutes",
 								Type:        []string{"integer"},
 								Format:      "int32",
 							},
