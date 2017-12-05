@@ -37,6 +37,10 @@ type OAuthAccessToken struct {
 
 	// RefreshToken is the value by which this token can be renewed. Can be blank.
 	RefreshToken string `json:"refreshToken,omitempty" protobuf:"bytes,9,opt,name=refreshToken"`
+
+	// InactivityTimeoutSeconds is the seconds from CreationTime after which
+	// this token times out if no activity is detected.
+	InactivityTimeoutSeconds int32 `json:"inactivityTimeoutSeconds,omitempty" protobuf:"varint,10,opt,name=inactivityTimeoutSeconds"`
 }
 
 // +genclient
@@ -117,6 +121,16 @@ type OAuthClient struct {
 	// AccessTokenMaxAgeSeconds overrides the default access token max age for tokens granted to this client.
 	// 0 means no expiration.
 	AccessTokenMaxAgeSeconds *int32 `json:"accessTokenMaxAgeSeconds,omitempty" protobuf:"varint,8,opt,name=accessTokenMaxAgeSeconds"`
+
+	// AccessTokenInactivityTimeoutSeconds overrides the default token timeout for tokens granted to this client.
+	// This option is meaningful only if the feature is enabled by setting the
+	// corresponding configuration option in the master configuration.
+	// This value needs to be set only if the default set in configuration is
+	// not appropriate for this client. Valid values are:
+	// - 0: Tokens for this client never time out
+	// - X: Tokens time out if there is no activity for X seconds
+	// The current minimum allowed value for X is 5 minutes
+	AccessTokenInactivityTimeoutSeconds *int32 `json:"accessTokenInactivityTimeoutSeconds,omitempty" protobuf:"varint,9,opt,name=accessTokenInactivityTimeoutSeconds"`
 }
 
 type GrantHandlerType string

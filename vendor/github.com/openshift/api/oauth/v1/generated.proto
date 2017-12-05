@@ -54,6 +54,10 @@ message OAuthAccessToken {
 
   // RefreshToken is the value by which this token can be renewed. Can be blank.
   optional string refreshToken = 9;
+
+  // InactivityTimeoutSeconds is the seconds from CreationTime after which
+  // this token times out if no activity is detected.
+  optional int32 inactivityTimeoutSeconds = 10;
 }
 
 // OAuthAccessTokenList is a collection of OAuth access tokens
@@ -142,6 +146,16 @@ message OAuthClient {
   // AccessTokenMaxAgeSeconds overrides the default access token max age for tokens granted to this client.
   // 0 means no expiration.
   optional int32 accessTokenMaxAgeSeconds = 8;
+
+  // AccessTokenInactivityTimeoutSeconds overrides the default token timeout for tokens granted to this client.
+  // This option is meaningful only if the feature is enabled by setting the
+  // corresponding configuration option in the master configuration.
+  // This value needs to be set only if the default set in configuration is
+  // not appropriate for this client. Valid values are:
+  // - 0: Tokens for this client never time out
+  // - X: Tokens time out if there is no activity for X seconds
+  // The current minimum allowed value for X is 5 minutes
+  optional int32 accessTokenInactivityTimeoutSeconds = 9;
 }
 
 // OAuthClientAuthorization describes an authorization created by an OAuth client
