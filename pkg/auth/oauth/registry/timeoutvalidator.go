@@ -81,6 +81,10 @@ func (a *TimeoutValidator) Validate(token *oauth.OAuthAccessToken, _ *user.User)
 		return errTimedout
 	}
 
+	if token.ExpiresIn != 0 && token.ExpiresIn <= int64(token.InactivityTimeoutSeconds) {
+		// skip if the timeout is already larger than expiration deadline
+		return nil
+	}
 	// After a positive timeout check we need to update the timeout and
 	// schedule an update so that we can either set or update the Timeout
 	// we do that launching a micro goroutine to avoid blocking
