@@ -16,6 +16,7 @@ import (
 	tokencache "k8s.io/apiserver/pkg/authentication/token/cache"
 	tokenunion "k8s.io/apiserver/pkg/authentication/token/union"
 	genericapiserver "k8s.io/apiserver/pkg/server"
+	webhooktoken "k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
 	kclientsetexternal "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/cert"
@@ -106,6 +107,18 @@ func newAuthenticator(config configapi.MasterConfig, accessTokenGetter oauthclie
 			// if you have a bearer token, you're a human (usually)
 			// if you change this, have a look at the impersonationFilter where we attach groups to the impersonated user
 			group.NewTokenGroupAdder(oauthTokenAuthenticator, []string{bootstrappolicy.AuthenticatedOAuthGroup}))
+	}
+
+	for _, wta := range config.AuthConfig.WebhookTokenAuthenticators {
+		ttl, err := time.ParseDuration(wta.WebhookTokenAuthnCacheTTL)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Error converting WebhookTokenAuthnCacheTTL='%s' to duration", wta.WebhookTokenAuthnCacheTTL)
+		}
+		webhookTokenAuthenticator, err := webhooktoken.New(wta.WebhookTokenAuthnConfigFile, ttl)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Failed to create authenticator for WebhookTokenAuthnConfigFile='%s'", wta.WebhookTokenAuthnConfigFile)
+		}
+		tokenAuthenticators = append(tokenAuthenticators, webhookTokenAuthenticator)
 	}
 
 	if len(tokenAuthenticators) > 0 {

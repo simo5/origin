@@ -192,6 +192,24 @@ func ValidateMasterAuthConfig(config configapi.MasterAuthConfig, fldPath *field.
 		validationResults.AddErrors(field.Required(fldPath.Child("requestHeader.extraHeaderPrefixes"), "must be specified for a secure connection"))
 	}
 
+	for _, wta := range config.WebhookTokenAuthenticators {
+		webhookTokenAuthnConfigFile := fldPath.Child("webhookTokenAuthenticators", "webhookTokenAuthnConfigFile")
+		if len(wta.WebhookTokenAuthnConfigFile) == 0 {
+			validationResults.AddErrors(field.Required(webhookTokenAuthnConfigFile, ""))
+		} else {
+			validationResults.AddErrors(ValidateFile(wta.WebhookTokenAuthnConfigFile, webhookTokenAuthnConfigFile)...)
+		}
+
+		webhookTokenAuthnCacheTTL := fldPath.Child("webhookTokenAuthenticators", "webhookTokenAuthnCacheTTL")
+		if len(wta.WebhookTokenAuthnCacheTTL) == 0 {
+			validationResults.AddErrors(field.Required(webhookTokenAuthnCacheTTL, ""))
+		} else if ttl, err := time.ParseDuration(wta.WebhookTokenAuthnCacheTTL); err != nil {
+			validationResults.AddErrors(field.Invalid(webhookTokenAuthnCacheTTL, wta.WebhookTokenAuthnCacheTTL, fmt.Sprintf("%v", err)))
+		} else if ttl < 0 {
+			validationResults.AddErrors(field.Invalid(webhookTokenAuthnCacheTTL, wta.WebhookTokenAuthnCacheTTL, "cannot be less than zero"))
+		}
+	}
+
 	return validationResults
 }
 
