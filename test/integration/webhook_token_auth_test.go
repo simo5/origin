@@ -12,11 +12,11 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	restclient "k8s.io/client-go/rest"
-	clientcmdapiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
+	kclientcmd "k8s.io/client-go/tools/clientcmd"
+	kclientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/kubernetes/pkg/apis/authentication"
 
 	configapi "github.com/openshift/origin/pkg/cmd/server/apis/config"
-	configapilatest "github.com/openshift/origin/pkg/cmd/server/apis/config/latest"
 	"github.com/openshift/origin/pkg/oc/cli/cmd"
 	userclient "github.com/openshift/origin/pkg/user/generated/internalclientset/typed/user/internalversion"
 	testutil "github.com/openshift/origin/test/util"
@@ -110,41 +110,28 @@ func TestWebhookTokenAuthn(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	defer os.Remove(authConfigFile.Name())
-	authConfigObj := &clientcmdapiv1.Config{
-		Clusters: []clientcmdapiv1.NamedCluster{
-			{
-				Name: "authService",
-				Cluster: clientcmdapiv1.Cluster{
-					CertificateAuthority: caFile.Name(),
-					Server:               "https://127.0.0.1/authenticate",
-				},
+	authConfigObj := kclientcmdapi.Config{
+		Clusters: map[string]*kclientcmdapi.Cluster{
+			"authService": {
+				CertificateAuthority: caFile.Name(),
+				Server:               "https://127.0.0.1/authenticate",
 			},
 		},
-		AuthInfos: []clientcmdapiv1.NamedAuthInfo{
-			{
-				Name: "apiServer",
-				AuthInfo: clientcmdapiv1.AuthInfo{
-					ClientCertificateData: authLocalhostCert,
-					ClientKeyData:         authLocalhostKey,
-				},
+		AuthInfos: map[string]*kclientcmdapi.AuthInfo{
+			"apiServer": {
+				ClientCertificateData: authLocalhostCert,
+				ClientKeyData:         authLocalhostKey,
 			},
 		},
 		CurrentContext: "webhook",
-		Contexts: []clientcmdapiv1.NamedContext{
-			{
-				Name: "webhook",
-				Context: clientcmdapiv1.Context{
-					Cluster:  "authService",
-					AuthInfo: "apiServer",
-				},
+		Contexts: map[string]*kclientcmdapi.Context{
+			"webhook": {
+				Cluster:  "authService",
+				AuthInfo: "apiServer",
 			},
 		},
 	}
-	authConfigContent, err := configapilatest.WriteYAML(authConfigObj)
-	if err != nil {
-		t.Fatalf("error writing config: %v", err)
-	}
-	if err := ioutil.WriteFile(authConfigFile.Name(), authConfigContent, os.FileMode(0644)); err != nil {
+	if err := kclientcmd.WriteToFile(authConfigObj, authConfigFile.Name()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
