@@ -10,14 +10,13 @@ import (
 	"reflect"
 	"testing"
 
+	authenticationv1beta1 "k8s.io/api/authentication/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	restclient "k8s.io/client-go/rest"
 	kclientcmd "k8s.io/client-go/tools/clientcmd"
 	kclientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/kubernetes/pkg/apis/authentication"
 
 	configapi "github.com/openshift/origin/pkg/cmd/server/apis/config"
-	"github.com/openshift/origin/pkg/oc/cli/cmd"
 	userclient "github.com/openshift/origin/pkg/user/generated/internalclientset/typed/user/internalversion"
 	testutil "github.com/openshift/origin/test/util"
 	testserver "github.com/openshift/origin/test/util/server"
@@ -28,22 +27,22 @@ import (
 func TestWebhookTokenAuthn(t *testing.T) {
 	authToken := "Anything-goes!"
 
-	expectedTokenPost := authentication.TokenReview{
+	expectedTokenPost := authenticationv1beta1.TokenReview{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "authentication.k8s.io/v1beta1",
 			Kind:       "TokenReview",
 		},
-		Spec: authentication.TokenReviewSpec{Token: authToken},
+		Spec: authenticationv1beta1.TokenReviewSpec{Token: authToken},
 	}
 
-	tokenResponse := authentication.TokenReview{
+	tokenResponse := authenticationv1beta1.TokenReview{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "authentication.k8s.io/v1beta1",
 			Kind:       "TokenReview",
 		},
-		Status: authentication.TokenReviewStatus{
+		Status: authenticationv1beta1.TokenReviewStatus{
 			Authenticated: true,
-			User: authentication.UserInfo{
+			User: authenticationv1beta1.UserInfo{
 				Username: "testuser",
 			},
 		},
@@ -76,7 +75,7 @@ func TestWebhookTokenAuthn(t *testing.T) {
 			if err := r.ParseForm(); err != nil {
 				t.Fatalf("Error parsing form POSTed to /token: %v", err)
 			}
-			var tokenPost authentication.TokenReview
+			var tokenPost authenticationv1beta1.TokenReview
 			if err = json.NewDecoder(r.Body).Decode(&tokenPost); err != nil {
 				t.Fatalf("Expected TokenReview structure in POST request: %v", err)
 			}
@@ -160,14 +159,14 @@ func TestWebhookTokenAuthn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	userWhoamiOptions := cmd.WhoAmIOptions{UserInterface: userClient.Users(), Out: ioutil.Discard}
-	retrievedUser, err := userWhoamiOptions.WhoAmI()
+	retrievedUser, err := userClient.Users().Get("~", metav1.GetOptions{})
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Errorf("unexpected error: %#v", err)
 	}
 	if retrievedUser.Name != "testuser" {
 		t.Errorf("expected username %v, got %v", "testuser", retrievedUser.Name)
 	}
+	// up to you on what you want to check for here
 	if retrievedUser.FullName != "myname" {
 		t.Errorf("expected display name %v, got %v", "myname", retrievedUser.FullName)
 	}
